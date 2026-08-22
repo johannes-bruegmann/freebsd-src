@@ -167,6 +167,57 @@ add_verify_status(struct stat *stp, int status)
 		(unsigned long long)stp->st_ino, status));
 }
 
+/* --- open-verification statistic (loader.open.*) --------------------- */
+/*
+ * Record, per severity class and outcome, the basename of every file the
+ * loader verifies. This surfaces the silent pass-throughs -- files accepted
+ * WITHOUT a valid fingerprint (VE_TRY, or a VE_WANT fallback) -- for tamper
+ * detection. verify_report() is the one point that sees every file with its
+ * severity and raw result, so the hook lives there. Detection only: this
+ * records, it never changes what is accepted.
+ */
+#define	VE_OPEN_LIST	512
+static char ve_open_pass[VE_MUST + 1][VE_OPEN_LIST];	/* verified,   by severity */
+static char ve_open_fail[VE_MUST + 1][VE_OPEN_LIST];	/* unverified, by severity */
+
+static void
+ve_open_append(char *list, const char *name, size_t sz)
+{
+	size_t n;
+
+	n = strlen(list);
+	if (n > 0 && n + 1 < sz)
+		list[n++] = ',';
+	if (n < sz)
+		strlcpy(list + n, name, sz - n);
+}
+
+void
+ve_open_record(const char *path, int severity, int status)
+{
+	const char *base;
+
+	if (severity < VE_TRY || severity > VE_MUST)
+		return;
+	base = strrchr(path, '/');
+	base = (base != NULL) ? base + 1 : path;
+	ve_open_append((status > 0 ? ve_open_pass : ve_open_fail)[severity],
+	    base, VE_OPEN_LIST);
+}
+
+/* "VE_MUST:.. VE_WANT:.. VE_TRY:.." for the failed set (failed) or passed. */
+const char *
+ve_open_summary(int failed)
+{
+	static char out[3 * VE_OPEN_LIST + 32];
+	char (*by)[VE_OPEN_LIST];
+
+	by = failed ? ve_open_fail : ve_open_pass;
+	snprintf(out, sizeof(out), "VE_MUST:%s VE_WANT:%s VE_TRY:%s",
+	    by[VE_MUST], by[VE_WANT], by[VE_TRY]);
+	return (out);
+}
+
 
 /**
  * @brief
@@ -265,7 +316,9 @@ find_manifest(const char *name)
 }
 
 
-#ifdef LOADER_VERIEXEC_TESTING
+#if defined(LOADER_VERIEXEC_STRICT) || defined(LOADER_VERIEXEC_ELEVATED)
+# define ACCEPT_NO_FP_DEFAULT	VE_WANT
+#elif defined(LOADER_VERIEXEC_TESTING)
 # define ACCEPT_NO_FP_DEFAULT	VE_MUST + 1
 #else
 # define ACCEPT_NO_FP_DEFAULT	VE_MUST
@@ -299,6 +352,38 @@ severity_guess(const char *filename)
 }
 
 static int Verifying = -1;		/* 0 if not verifying */
+
+#ifdef LOADER_VERIEXEC_ELEVATED
+/*
+ * Explicit verification switch: turn verification on before the first
+ * file is opened, instead of as a side effect of the first
+ * verify_prep() call. Only a loader built to verify calls this, so a
+ * trust base that does not come up is a broken chain: panic, do not
+ * fall back to Verifying == 0 -- that would silently accept every
+ * file, loader.conf included.
+ */
+int
+ve_verifying_get(void)
+{
+	return (Verifying);
+}
+
+void
+ve_verifying_set(void)
+{
+
+	if (Verifying >= 1)
+		return;
+	Verifying = ve_trust_init();
+	if (Verifying < 1)
+		panic("veriexec: trust anchors failed to initialize");
+	ve_status_set(0, VE_NOT_CHECKED);
+	ve_status_state = VE_STATUS_NONE;
+	if (!ve_self_tests())
+		panic("veriexec: self tests failed");
+	ve_anchor_verbose_set(1);
+}
+#endif
 
 static void
 verify_tweak(int fd, off_t off, struct stat *stp,
@@ -410,6 +495,8 @@ getenv_int(const char *var, int def)
 void
 verify_report(const char *path, int severity, int status, struct stat *stp)
 {
+	ve_open_record(path, severity, status);
+
 	if (status < 0 || status == VE_FINGERPRINT_IGNORE) {
 		if (Verbose < VE_VERBOSE_ALL && severity < VE_WANT)
 			return;

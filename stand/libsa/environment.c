@@ -254,6 +254,8 @@ is_restricted_var(const char *name)
 		"rootfs",
 		"secur",
 		"vfs.",
+		"geli_",
+		"geom_eli_",
 #ifdef ENV_IS_RESTRICTED_LIST
 		ENV_IS_RESTRICTED_LIST,
 #endif
