@@ -318,6 +318,8 @@ is_restricted_var(const char *var)
 		"rootfs",
 		"secur",
 		"vfs.",
+		"geli_",
+		"geom_eli_",
 		NULL,
 	};
 	const char **cp;

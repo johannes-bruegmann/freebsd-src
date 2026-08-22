@@ -70,6 +70,11 @@
 #include "actbl.h"
 
 #include "loader_efi.h"
+#include "local/policy.h"
+
+#ifdef LOADER_VERIEXEC
+#include <verify_file.h>
+#endif
 
 struct arch_switch archsw = {	/* MI/MD interface boundary */
 	.arch_autoload = efi_autoload,
@@ -125,6 +130,7 @@ EFI_LOADED_IMAGE *boot_img;
  */
 ACPI_TABLE_RSDP *rsdp;
 
+#ifndef LOADER_VERIEXEC
 static bool
 has_keyboard(void)
 {
@@ -206,6 +212,7 @@ out:
 	free(hin);
 	return retval;
 }
+#endif
 
 static void
 set_currdev_devdesc(struct devdesc *currdev)
@@ -1205,7 +1212,10 @@ EFI_STATUS
 main(int argc, CHAR16 *argv[])
 {
 	int howto, i, uhowto;
-	bool has_kbd, is_last;
+#ifndef LOADER_VERIEXEC
+	bool has_kbd;
+#endif
+	bool is_last;
 	char *s;
 	EFI_DEVICE_PATH *imgpath;
 	CHAR16 *text;
@@ -1275,6 +1285,30 @@ main(int argc, CHAR16 *argv[])
 	 * Detect console settings two different ways: one via the command
 	 * args (eg -h) or via the UEFI ConOut variable.
 	 */
+#ifdef LOADER_VERIEXEC
+#ifdef LOADER_VERIEXEC_ELEVATED
+	/*
+	 * Turn verification on NOW, before this loader reads any file
+	 * or unverified input -- not as a side effect of the first
+	 * verified open. Fail-secure: a trust base that does not come
+	 * up panics inside ve_verifying_set().
+	 */
+	ve_verifying_set();
+#endif
+	/*
+	 * LoadOptions are unverified input from NVRAM, processed here
+	 * before the Lua interpreter exists and therefore before any
+	 * loader password. boot_parse_arg() would set arbitrary
+	 * variables and the RB_* flags (-s single user, -d kdb, -h
+	 * serial console). Consume them for the trust marker, then
+	 * discard: the boot entry on this machine carries no options.
+	 * The LoaderEnv/NextLoaderEnv files read at the end of this
+	 * branch are the same class of unverified pre-interpreter
+	 * input, so they are skipped as well.
+	 */
+	local_run(PHASE_BOOTLOCK, argc, argv);
+	howto = 0;
+#else
 	has_kbd = has_keyboard();
 	howto = parse_args(argc, argv);
 	if (!has_kbd && (howto & RB_PROBE))
@@ -1298,6 +1332,7 @@ main(int argc, CHAR16 *argv[])
 	 */
 	read_loader_env("LoaderEnv", "/efi/freebsd/loader.env", false);
 	read_loader_env("NextLoaderEnv", NULL, true);
+#endif
 
 	/*
 	 * We now have two notions of console. howto should be viewed as
@@ -1475,6 +1510,9 @@ main(int argc, CHAR16 *argv[])
 	autoload_font(false);	/* Set up the font list for console. */
 	efi_init_environment();
 
+#ifdef LOADER_VERIEXEC
+	local_run(PHASE_LOADERLOCK, argc, argv);
+#endif
 	interact();			/* doesn't return */
 
 	return (EFI_SUCCESS);		/* keep compiler happy */

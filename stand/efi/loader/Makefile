@@ -4,6 +4,11 @@ LOADER_UFS_SUPPORT?=	yes
 LOADER_CD9660_SUPPORT?=	no
 LOADER_EXT2FS_SUPPORT?=	no
 
+.PATH: ${.CURDIR}/../loader/local ${.CURDIR}/../loader/local/foundation
+CFLAGS+= -I${.CURDIR}/../loader/local
+.-include "${.CURDIR}/../loader/local/site.mk"
+.-include "${.CURDIR}/../loader/local/secret.mk"
+
 .include <bsd.init.mk>
 
 .if ${MACHINE} == "amd64" && ${DO32:U0} == 1
@@ -25,6 +30,12 @@ SRCS=	autoload.c \
 	efi_main.c \
 	framebuffer.c \
 	main.c \
+	measurement.c \
+	claim.c \
+	gate.c \
+	action.c \
+	policy.c \
+	foundation.c \
 	self_reloc.c \
 	vers.c \
 	gfx_fb.c \

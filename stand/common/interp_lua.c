@@ -39,6 +39,7 @@
 
 #include <lerrno.h>
 #include <lfs.h>
+#include <lhash.h>
 #include <lutils.h>
 
 struct interp_lua_softc {
@@ -89,6 +90,7 @@ static const luaL_Reg loadedlibs[] = {
 //  {LUA_UTF8LIBNAME, luaopen_utf8},
 //  {LUA_DBLIBNAME, luaopen_debug},
   {"errno", luaopen_errno},
+  {"hash", luaopen_hash},
   {"io", luaopen_io},
   {"lfs", luaopen_lfs},
   {"loader", luaopen_loader},
