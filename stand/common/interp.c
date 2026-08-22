@@ -87,12 +87,26 @@ interact(void)
 	 * Nothing happens if the file is absent, and nothing happens if it
 	 * is present but unverified: verify_file() reaches verify_tweak()
 	 * only for a file that checked out against the manifest.
+	 *
+	 * When verification is already on -- ve_verifying_set() ran in
+	 * main() -- this bootstrap is redundant and the open is skipped.
 	 */
+#ifdef LOADER_VERIEXEC_ELEVATED
+	if (ve_verifying_get() < 1) {
+		fd = open(VE_TWEAK_FILE, O_RDONLY);
+		if (fd >= 0) {
+			(void)verify_file(fd, VE_TWEAK_FILE, 0, VE_GUESS,
+			    __func__);
+			close(fd);
+		}
+	}
+#else
 	fd = open(VE_TWEAK_FILE, O_RDONLY);
 	if (fd >= 0) {
 		(void)verify_file(fd, VE_TWEAK_FILE, 0, VE_GUESS, __func__);
 		close(fd);
 	}
+#endif
 #endif
 	interp_preinit();
 	interp_init();
