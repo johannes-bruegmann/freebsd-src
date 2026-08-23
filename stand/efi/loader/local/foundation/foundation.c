@@ -91,29 +91,47 @@ GATE_DEFINE(loaderlock, LOADERLOCK_SECRET,
     CLAIM(measure_prerequisites_verify, diagnose_prerequisites_verify, "verify.count",
         MEASUREMENT_BYTE("PrereqsVerify", LOADER_PREREQUISITES_VERIFY_N)));
 
+/* --- the strict-watch gate, publishing loader.trust.strictwatch.* --- */
+/*
+ * The soft guarantee, watched not enforced: strict should be active and the
+ * loader.ve.strict marker should exist. Both claims expect 1; a shortfall is
+ * published, never halted (see the publish-only policy below). This is the
+ * point of the whole exercise -- we know the medium can be tampered, so we
+ * limit ourselves to *noticing*. secret = NULL: nothing to unlock, it only
+ * reports.
+ */
+GATE_DEFINE(strictwatch, NULL,
+    CLAIM(measure_strict,    NULL, "strict.active", MEASUREMENT_BYTE("StrictActive", 1)),
+    CLAIM(measure_ve_strict, NULL, "strict.marker", MEASUREMENT_BYTE("VeStrictPresent", 1)));
+
 /*
  * =====================================================================
  *  The policy tables, one per phase -- read these first.
  * =====================================================================
  */
-static const struct policy bootlock_policies[] = {
+static const struct policy boot_policies[] = {
 	POLICY(bootlock,
-	    FIRE(when_always, &publish_act),	/* always expose the evidence */
-	    FIRE(when_fail,   &unlock_act)),	/* on tamper: report + compiled-in
-						   PW (config-independent), else the
-						   Lua PW would vanish with a lost
-						   loader.conf. NULL secret ->
-						   report + proceed */
+	    FIRE(when_always, &publish_act)),	/* publish-only: record the platform
+						   evidence. Enforcement is the Lua
+						   path (bootlock_require); the C
+						   backstop lives at PHASE_LOADER,
+						   tied to the loader.conf path. */
 	POLICY_END,
 };
 
-static const struct policy loaderlock_policies[] = {
+static const struct policy loader_policies[] = {
 	POLICY(loaderlock,
 	    FIRE(when_always, &publish_act),	/* expose count + missing list */
-	    FIRE(when_fail,   &unlock_act)),	/* report failed claims, then demand
-						   the compiled-in passphrase (if
-						   provisioned) before the prompt;
-						   NULL secret -> report + proceed */
+	    FIRE(when_fail,   &unlock_act)),	/* config-independent BACKSTOP: fires
+						   when prereqs/loader.conf are unusable,
+						   i.e. when the Lua path cannot run (no
+						   trust_hash). unlock_act sets
+						   <gate>.unlocked so the Lua does not
+						   re-ask. NULL secret -> report + proceed */
+	POLICY(strictwatch,
+	    FIRE(when_always, &publish_act)),	/* watch only: publish the soft-
+						   guarantee state, never halt --
+						   keeps stock compatibility */
 	POLICY_END,
 };
 
@@ -121,10 +139,10 @@ const struct policy *
 phase_policies(enum phase ph)
 {
 	switch (ph) {
-	case PHASE_BOOTLOCK:
-		return (bootlock_policies);
-	case PHASE_LOADERLOCK:
-		return (loaderlock_policies);
+	case PHASE_BOOT:
+		return (boot_policies);
+	case PHASE_LOADER:
+		return (loader_policies);
 	}
-	return (loaderlock_policies);	/* unreachable; keeps the compiler happy */
+	return (loader_policies);	/* unreachable; keeps the compiler happy */
 }
