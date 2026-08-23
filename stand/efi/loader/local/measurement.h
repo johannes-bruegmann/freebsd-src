@@ -88,6 +88,8 @@ struct measurement	measure_setupmode(int argc, CHAR16 *argv[]);
 struct measurement	measure_board(int argc, CHAR16 *argv[]);
 struct measurement	measure_keys(int argc, CHAR16 *argv[]);
 struct measurement	measure_marker(int argc, CHAR16 *argv[]);
+struct measurement	measure_strict(int argc, CHAR16 *argv[]);
+struct measurement	measure_ve_strict(int argc, CHAR16 *argv[]);
 
 void	diagnose_prerequisites_exist(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_prerequisites_verify(int argc, CHAR16 *argv[], struct diagnosis *);

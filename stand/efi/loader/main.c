@@ -1306,7 +1306,7 @@ main(int argc, CHAR16 *argv[])
 	 * branch are the same class of unverified pre-interpreter
 	 * input, so they are skipped as well.
 	 */
-	local_run(PHASE_BOOTLOCK, argc, argv);
+	local_run(PHASE_BOOT, argc, argv);
 	howto = 0;
 #else
 	has_kbd = has_keyboard();
@@ -1511,7 +1511,7 @@ main(int argc, CHAR16 *argv[])
 	efi_init_environment();
 
 #ifdef LOADER_VERIEXEC
-	local_run(PHASE_LOADERLOCK, argc, argv);
+	local_run(PHASE_LOADER, argc, argv);
 #endif
 	interact();			/* doesn't return */
 

@@ -145,32 +145,36 @@ function password.check()
 		doPrompt(prompt, pwd, pwd_hash)
 	end
 
-	-- The loader publishes what it MEASURED (loader.trust.bootlock.passed,
-	-- .failed, .skipped); the policy lives here. Which witnesses you
-	-- insist on is a judgement, and this file is on the signed
-	-- medium, so it changes without rebuilding the loader.
+	-- The loader publishes what it MEASURED (loader.trust.<gate>.passed, .failed,
+	-- .skipped); the policy lives here. Which witnesses you insist on is a
+	-- judgement, and this file is on the signed medium, so it changes without
+	-- rebuilding the loader.
 	--
-	-- loader_trust_require, in loader.conf:
+	-- loader_trust_<gate>_require, in loader.conf:
 	--   unset          only a FAILURE gates (and see below)
 	--   "all"          every witness must have run
 	--   "A,B,C"        exactly these must be in passed
 	--
-	-- A list beats "all" once a witness is deliberately asleep:
-	-- "all" would then demand the passphrase forever.
+	-- A list beats "all" once a witness is deliberately asleep: "all" would then
+	-- demand the passphrase forever.
 	--
-	-- Asked before the GELI passphrase, i.e. first of all, and the
-	-- reason goes into the prompt TEXT because doPrompt calls
-	-- setup_screen(), which clears anything printed before it.
-	local trust_hash = loader.getenv("loader_trust_password_sha256")
-	if trust_hash ~= nil then
-		local failed = loader.getenv("loader.trust.bootlock.failed") or ""
-		local passed = loader.getenv("loader.trust.bootlock.passed") or ""
-		local skipped = loader.getenv("loader.trust.bootlock.skipped") or ""
+	-- Asked before the GELI passphrase; the reason goes into the prompt TEXT
+	-- because doPrompt calls setup_screen(), which clears anything printed before
+	-- it. One passphrase for all gates for now.
+	local function trustGate(g, trust_hash)
+		if trust_hash == nil then return end
+		-- Handshake: if the C backstop (unlock_act) already asked for this gate
+		-- (loader.conf/prereqs unusable), do not ask again.
+		if loader.getenv("loader.trust." .. g .. ".unlocked") ~= nil then
+			return
+		end
+		local failed = loader.getenv("loader.trust." .. g .. ".failed") or ""
+		local passed = loader.getenv("loader.trust." .. g .. ".passed") or ""
+		local skipped = loader.getenv("loader.trust." .. g .. ".skipped") or ""
 		-- Not named `require`: that is the module loader.
-		local mode = loader.getenv("loader_trust_require")
-		-- An empty failed list next to an empty passed list means
-		-- nothing was checked, and silence is not trust. An absent
-		-- variable says the loader predates the feature: same case.
+		local mode = loader.getenv("loader_trust_" .. g .. "_require")
+		-- Empty failed next to empty passed means nothing was checked, and silence
+		-- is not trust. An absent mode: the loader predates the feature, same case.
 		local why
 		if failed ~= "" then
 			why = "failed=" .. failed
@@ -179,9 +183,9 @@ function password.check()
 		elseif mode == "all" and skipped ~= "" then
 			why = "skipped=" .. skipped
 		elseif mode ~= nil and mode ~= "all" then
-			-- Every required name must appear in passed. Commas on
-			-- both sides make the match unambiguous, so SecureBoot
-			-- cannot satisfy a requirement for SecureBootKeys.
+			-- Every required name must appear in passed. Commas on both sides make
+			-- the match unambiguous, so SecureBoot cannot satisfy a requirement for
+			-- SecureBootKeys.
 			local haystack = "," .. passed .. ","
 			for name in mode:gmatch("[^,%s]+") do
 				if not haystack:find("," .. name .. ",", 1, true) then
@@ -191,19 +195,19 @@ function password.check()
 			end
 		end
 		if why ~= nil then
-			compare("Platform trust (" .. why ..
-			    ") -- passphrase:", nil, trust_hash)
-			-- doPrompt() runs setup_screen() only ONCE, so the next
-			-- prompt is drawn at the same position without a clear.
-			-- This prompt is long and the GELI one is short, so its
-			-- tail would stay visible behind it. Observed 2026-08-17.
+			compare(g .. " trust (" .. why .. ") -- passphrase:", nil, trust_hash)
+			-- doPrompt() runs setup_screen() only ONCE, so the next prompt draws at
+			-- the same spot without a clear; this one is long and the GELI one short,
+			-- so its tail would stay visible. Observed 2026-08-17.
 			screen.clear()
 			screen.defcursor()
 		end
 	end
+	local trust_hash = loader.getenv("loader_trust_bootlock_password_sha256")
+	trustGate("bootlock", trust_hash)
+	trustGate("loaderlock", trust_hash)
 
 	local boot_pwd = loader.getenv("bootlock_password")
-	local boot_pwd_hash = loader.getenv("bootlock_password_sha256")
 	compare("Bootlock password:", boot_pwd, boot_pwd_hash)
 
 	local geli_prompt = loader.getenv("geom_eli_passphrase_prompt")
