@@ -221,6 +221,43 @@ file_verifies(const char *fname)
 #endif
 
 /*
+ * The "soft guarantee" probes. FreeBSD's convention is that strict veriexec
+ * should be in force and that a loader.ve.strict marker should be present. We
+ * do not enforce either -- we measure them and let the gate publish, so
+ * tampering with the soft guarantee is *noticed*, not prevented (detection,
+ * not prevention). This also keeps maximum compatibility with stock behaviour:
+ * a missing marker or inactive strict is not an error -- it never was.
+ */
+#define	LOADER_VE_STRICT_MARKER	"/boot/loader.ve.strict"
+
+struct measurement
+measure_strict(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "StrictActive", .type = MEAS_BYTE,
+	    .present = true };
+
+	/*
+	 * Runtime read of Verifying -- mode-independent: reports the actual state
+	 * whether or not this translation unit was built with
+	 * LOADER_VERIEXEC_ELEVATED (measurement.c gets LOADER_VERIEXEC but not
+	 * ELEVATED, which is only in the libsecureboot CFLAGS). Verifying >= 1
+	 * means verification is on and the strict threshold is in force.
+	 */
+	m.value.byte = (ve_verifying_get() >= 1) ? 1 : 0;
+	return (m);
+}
+
+struct measurement
+measure_ve_strict(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "VeStrictPresent", .type = MEAS_BYTE,
+	    .present = true };
+
+	m.value.byte = file_exists(LOADER_VE_STRICT_MARKER) ? 1 : 0;
+	return (m);
+}
+
+/*
  * Count how many prerequisites hold -- no short-circuit: the measurement records
  * what is, the gate decides. The claim's expected value is the full count
  * (LOADER_PREREQUISITES_*_N), so "all hold" is count == threshold.

@@ -353,6 +353,17 @@ severity_guess(const char *filename)
 
 static int Verifying = -1;		/* 0 if not verifying */
 
+/*
+ * Pure read of Verifying -- unconditional so consumers built without
+ * LOADER_VERIEXEC_ELEVATED (e.g. the local trust gates) can still observe the
+ * verification state at runtime.
+ */
+int
+ve_verifying_get(void)
+{
+	return (Verifying);
+}
+
 #ifdef LOADER_VERIEXEC_ELEVATED
 /*
  * Explicit verification switch: turn verification on before the first
@@ -362,12 +373,6 @@ static int Verifying = -1;		/* 0 if not verifying */
  * fall back to Verifying == 0 -- that would silently accept every
  * file, loader.conf included.
  */
-int
-ve_verifying_get(void)
-{
-	return (Verifying);
-}
-
 void
 ve_verifying_set(void)
 {

@@ -237,6 +237,7 @@ static void
 action_unlock(const struct appraisal *a)
 {
 	char failed[LISTLEN], got[128], hash[2 * SHA256_DIGEST_LENGTH + 1];
+	char name[64];
 	int tries;
 
 	list_by_verdict(a, VERDICT_FAIL, failed, sizeof(failed));
@@ -250,8 +251,16 @@ action_unlock(const struct appraisal *a)
 		readsecret(got, sizeof(got));
 		printf("\n");
 		sha256_hex(got, strlen(got), hash);
-		if (strcmp(hash, a->gate->secret) == 0)
+		if (strcmp(hash, a->gate->secret) == 0) {
+			/*
+			 * Handshake: tell the Lua path this gate is already
+			 * satisfied, so it does not ask for the same passphrase
+			 * again (see password.lua trustGate).
+			 */
+			gate_var(a->gate, "unlocked", name, sizeof(name));
+			setenv(name, "1", 1);
 			return;			/* unlocked -> loader prompt */
+		}
 		printf("wrong.\n");
 	}
 	halt_boot("locked");

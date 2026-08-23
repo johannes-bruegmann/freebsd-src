@@ -32,9 +32,18 @@
 #include "gate.h"			/* struct gate, struct appraisal */
 #include "action.h"
 
+/*
+ * A phase is one local_run() call site, named for what it guards entry INTO
+ * (convention: PHASE_<x> runs just before <x> is engaged). A phase may host
+ * several gates -- phase_policies() returns them as a list. Phase names are
+ * kept distinct from gate names (bootlock/loaderlock/strictwatch) on purpose.
+ */
 enum phase {
-	PHASE_BOOTLOCK,			/* earliest lock (boot0/boot1 heritage) */
-	PHASE_LOADERLOCK,		/* before the user opens the loader prompt */
+	PHASE_BOOT,		/* platform layer: before the boot medium is engaged
+				   (main.c, before currdev). Hosts: bootlock. */
+	PHASE_LOADER,		/* before the interactive loader (interact()); we are
+				   already in the loader binary. Hosts: loaderlock,
+				   strictwatch. */
 };
 
 /* A (predicate, action) pair: run the action iff the predicate fires. */

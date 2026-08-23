@@ -60,8 +60,8 @@ int	is_verified(struct stat *);
 void	add_verify_status(struct stat *, int);
 void	ve_open_record(const char *, int, int);
 const char *ve_open_summary(int);
-#ifdef LOADER_VERIEXEC_ELEVATED
 int	ve_verifying_get(void);
+#ifdef LOADER_VERIEXEC_ELEVATED
 void	ve_verifying_set(void);
 #endif
 
