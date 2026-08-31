@@ -78,8 +78,17 @@ bool	measurement_equal(const struct measurement *,
  * The tables in measurement.c are declared [..._N], so the compiler keeps each
  * list and its threshold in step.
  */
-#define	LOADER_PREREQUISITES_EXIST_N	16
-#define	LOADER_PREREQUISITES_VERIFY_N	2
+/*
+ * The lists themselves are emitted by elebake into the generated
+ * foundation.c together with the LOADER_PREREQUISITES_*_N constants the
+ * expectations are built from; here only the extern view the consumers
+ * loop over. Curation lives in the database (stage prerequisites
+ * exist|verify add), never in this source.
+ */
+extern const char *const	prerequisites_exist[];
+extern const char *const	prerequisites_verify[];
+extern const unsigned int	prerequisites_exist_n;
+extern const unsigned int	prerequisites_verify_n;
 
 struct measurement	measure_prerequisites_exist(int argc, CHAR16 *argv[]);
 struct measurement	measure_prerequisites_verify(int argc, CHAR16 *argv[]);
@@ -90,7 +99,10 @@ struct measurement	measure_keys(int argc, CHAR16 *argv[]);
 struct measurement	measure_marker(int argc, CHAR16 *argv[]);
 struct measurement	measure_strict(int argc, CHAR16 *argv[]);
 struct measurement	measure_ve_strict(int argc, CHAR16 *argv[]);
+struct measurement	measure_origin(int argc, CHAR16 *argv[]);
+struct measurement	measure_origin_verified(int argc, CHAR16 *argv[]);
 
+void	diagnose_origin(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_prerequisites_exist(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_prerequisites_verify(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_keys(int argc, CHAR16 *argv[], struct diagnosis *);
