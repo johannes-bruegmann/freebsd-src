@@ -152,42 +152,10 @@ add_token(char *out, size_t sz, const char *tok)
 /*
  * Prerequisites: files the loader must find before it will trust the boot.
  * Absence is invisible to veriexec (nothing is read, so nothing is verified),
- * so it is checked here explicitly. Two lists (see measurement.h), each declared
- * [..._N] so the compiler keeps table and threshold in step.
- *
- * _exist: the interpreter's own .lua chain (VE_MUST -- strict already catches
- * tampering; existence catches deletion before the interpreter chokes).
+ * so it is checked here explicitly. The two LISTS are DECISIONS, not code
+ * facts: elebake emits them into the generated foundation.c (arrays plus
+ * their _n counters, see measurement.h) — this file only consumes them.
  */
-static const char *const
-prerequisites_exist[LOADER_PREREQUISITES_EXIST_N] = {
-	"/boot/lua/loader.lua",
-	"/boot/lua/config.lua",
-	"/boot/lua/core.lua",
-	"/boot/lua/cli.lua",
-	"/boot/lua/hook.lua",
-	"/boot/lua/color.lua",
-	"/boot/lua/screen.lua",
-	"/boot/lua/password.lua",
-	"/boot/lua/menu.lua",
-	"/boot/lua/drawer.lua",
-	"/boot/lua/gfx-beastie.lua",
-	"/boot/lua/gfx-beastiebw.lua",
-	"/boot/lua/gfx-fbsdbw.lua",
-	"/boot/lua/gfx-orb.lua",
-	"/boot/lua/gfx-orbbw.lua",
-	"/boot/lua/gfx-install.lua",
-};
-
-/*
- * _verify: files strict does not fully cover -- loader.conf (VE_WANT, tolerated
- * without a fingerprint) and device.hints (VE_TRY, tolerated and unreported).
- * Checked with verify_file, so absence AND tamper both fail the claim.
- */
-static const char *const
-prerequisites_verify[LOADER_PREREQUISITES_VERIFY_N] = {
-	"/boot/loader.conf",
-	"/boot/device.hints",
-};
 
 static bool
 file_exists(const char *fname)
@@ -257,6 +225,195 @@ measure_ve_strict(int argc __unused, CHAR16 *argv[] __unused)
 	return (m);
 }
 
+/* ------------------------------------------------------------- origin */
+
+/*
+ * Where does the RUNNING code come from? The firmware records it: the
+ * LoadedImage protocol of our own image handle carries the DeviceHandle
+ * (whose device path names the partition, GUID included) and the FilePath
+ * it loaded us from. Self-reporting, honestly: a hostile loader simply
+ * lies or stays silent -- the value of these providers is that the HONEST
+ * loader becomes a precise witness whose published origin the later
+ * custody links (earlboot/elvbootd) can check, and that a forger has to
+ * fake ever more, consistently.
+ */
+
+static EFI_GUID origin_imgid = LOADED_IMAGE_PROTOCOL;
+static EFI_GUID origin_sfsid = SIMPLE_FILE_SYSTEM_PROTOCOL;
+
+/* The GPT partition GUID of the device we were loaded from, canonical
+ * lowercase text (matches `gpart list` rawuuid -- the site.mk side hashes
+ * the SAME text form). Empty string when unknown. */
+static void
+origin_partition_guid(char *out, size_t outsz)
+{
+	EFI_LOADED_IMAGE *img;
+	EFI_DEVICE_PATH *dp;
+	HARDDRIVE_DEVICE_PATH *hd;
+	const UINT8 *g;
+
+	out[0] = '\0';
+	if (EFI_ERROR(BS->HandleProtocol(IH, &origin_imgid, (void **)&img)))
+		return;
+	dp = efi_lookup_devpath(img->DeviceHandle);
+	if (dp == NULL)
+		return;
+	for (; !IsDevicePathEndType(dp); dp = NextDevicePathNode(dp)) {
+		if (DevicePathType(dp) != MEDIA_DEVICE_PATH ||
+		    DevicePathSubType(dp) != MEDIA_HARDDRIVE_DP)
+			continue;
+		hd = (HARDDRIVE_DEVICE_PATH *)dp;
+		if (hd->SignatureType != SIGNATURE_TYPE_GUID)
+			continue;
+		/* EFI GUID: first three fields little endian, rest as-is. */
+		g = hd->Signature;
+		(void)snprintf(out, outsz,
+		    "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-"
+		    "%02x%02x%02x%02x%02x%02x",
+		    g[3], g[2], g[1], g[0], g[5], g[4], g[7], g[6],
+		    g[8], g[9], g[10], g[11], g[12], g[13], g[14], g[15]);
+		return;
+	}
+}
+
+/* SHA256 over the canonical GUID text of our load origin. The site.mk
+ * counterpart: sha256 of the ESP's gpart rawuuid (lowercase, no newline)
+ * -> -DLOADER_TRUST_ORIGIN_DIGEST. */
+struct measurement
+measure_origin(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "LoadOrigin", .type = MEAS_SHA256 };
+	char guid[37];
+
+	origin_partition_guid(guid, sizeof(guid));
+	if (guid[0] != '\0') {
+		sha256_bytes(guid, strlen(guid), m.value.digest);
+		m.present = true;
+	}
+	return (m);
+}
+
+/* sha256 of a bootfs file via the loader's own open/read; false on any
+ * shortfall. Reads only -- nothing is loaded or executed. */
+static bool
+sha256_bootfs_file(const char *fname,
+    uint8_t out[static SHA256_DIGEST_LENGTH])
+{
+	SHA256_CTX ctx;
+	char buf[4096];
+	ssize_t n;
+	int fd;
+
+	fd = open(fname, O_RDONLY);
+	if (fd < 0)
+		return (false);
+	SHA256_Init(&ctx);
+	while ((n = read(fd, buf, sizeof(buf))) > 0)
+		SHA256_Update(&ctx, buf, (size_t)n);
+	close(fd);
+	if (n < 0)
+		return (false);
+	SHA256_Final(out, &ctx);
+	return (true);
+}
+
+/* sha256 of the file the firmware SAYS it loaded us from, read over the
+ * origin's own SimpleFileSystem (chunked; nothing is loaded). */
+static bool
+sha256_origin_file(uint8_t out[static SHA256_DIGEST_LENGTH])
+{
+	EFI_LOADED_IMAGE *img;
+	EFI_FILE_IO_INTERFACE *fio;
+	EFI_FILE_HANDLE root, f;
+	EFI_DEVICE_PATH *dp;
+	FILEPATH_DEVICE_PATH *fp;
+	CHAR16 *path;
+	SHA256_CTX ctx;
+	UINTN sz, plen, off;
+	char buf[4096];
+	bool ok = false;
+
+	if (EFI_ERROR(BS->HandleProtocol(IH, &origin_imgid, (void **)&img)))
+		return (false);
+	if (img->FilePath == NULL)
+		return (false);
+	/* Concatenate the FILEPATH nodes into one CHAR16 path. */
+	plen = 0;
+	for (dp = img->FilePath; !IsDevicePathEndType(dp);
+	    dp = NextDevicePathNode(dp)) {
+		if (DevicePathType(dp) != MEDIA_DEVICE_PATH ||
+		    DevicePathSubType(dp) != MEDIA_FILEPATH_DP)
+			continue;
+		plen += (DevicePathNodeLength(dp) -
+		    SIZE_OF_FILEPATH_DEVICE_PATH) / sizeof(CHAR16);
+	}
+	if (plen == 0)
+		return (false);
+	path = malloc((plen + 1) * sizeof(CHAR16));
+	if (path == NULL)
+		return (false);
+	off = 0;
+	for (dp = img->FilePath; !IsDevicePathEndType(dp);
+	    dp = NextDevicePathNode(dp)) {
+		UINTN i, n16;
+
+		if (DevicePathType(dp) != MEDIA_DEVICE_PATH ||
+		    DevicePathSubType(dp) != MEDIA_FILEPATH_DP)
+			continue;
+		fp = (FILEPATH_DEVICE_PATH *)dp;
+		n16 = (DevicePathNodeLength(dp) -
+		    SIZE_OF_FILEPATH_DEVICE_PATH) / sizeof(CHAR16);
+		for (i = 0; i < n16 && fp->PathName[i] != 0; i++)
+			path[off++] = fp->PathName[i];
+	}
+	path[off] = 0;
+
+	if (!EFI_ERROR(BS->HandleProtocol(img->DeviceHandle, &origin_sfsid,
+	    (void **)&fio)) &&
+	    !EFI_ERROR(fio->OpenVolume(fio, &root))) {
+		if (!EFI_ERROR(root->Open(root, &f, path,
+		    EFI_FILE_MODE_READ, 0))) {
+			SHA256_Init(&ctx);
+			for (;;) {
+				sz = sizeof(buf);
+				if (EFI_ERROR(f->Read(f, &sz, buf)))
+					break;
+				if (sz == 0) {
+					SHA256_Final(out, &ctx);
+					ok = true;
+					break;
+				}
+				SHA256_Update(&ctx, buf, sz);
+			}
+			f->Close(f);
+		}
+		root->Close(root);
+	}
+	free(path);
+	return (ok);
+}
+
+/*
+ * 1 iff the resting file at our own load origin is byte-identical (by
+ * sha256) to /boot/loader.efi.signed -- the manifest-covered reserve.
+ * Combined with the verify prerequisite on the reserve this chains the
+ * origin file to the attested manifest without parsing it here.
+ */
+struct measurement
+measure_origin_verified(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "OriginVerified", .type = MEAS_BYTE };
+	uint8_t self[SHA256_DIGEST_LENGTH], reserve[SHA256_DIGEST_LENGTH];
+
+	if (!sha256_origin_file(self))
+		return (m);
+	m.present = true;
+	if (sha256_bootfs_file("/boot/loader.efi.signed", reserve) &&
+	    memcmp(self, reserve, SHA256_DIGEST_LENGTH) == 0)
+		m.value.byte = 1;
+	return (m);
+}
+
 /*
  * Count how many prerequisites hold -- no short-circuit: the measurement records
  * what is, the gate decides. The claim's expected value is the full count
@@ -270,7 +427,7 @@ measure_prerequisites_exist(int argc __unused, CHAR16 *argv[] __unused)
 	    .present = true };
 	unsigned int i;
 
-	for (i = 0; i < LOADER_PREREQUISITES_EXIST_N; i++)
+	for (i = 0; i < prerequisites_exist_n; i++)
 		if (file_exists(prerequisites_exist[i]))
 			m.value.byte++;
 	return (m);
@@ -283,7 +440,7 @@ measure_prerequisites_verify(int argc __unused, CHAR16 *argv[] __unused)
 	    .present = true };
 	unsigned int i;
 
-	for (i = 0; i < LOADER_PREREQUISITES_VERIFY_N; i++)
+	for (i = 0; i < prerequisites_verify_n; i++)
 #ifdef LOADER_VERIEXEC
 		if (file_verifies(prerequisites_verify[i]))
 			m.value.byte++;
@@ -405,7 +562,7 @@ diagnose_prerequisites_exist(int argc __unused, CHAR16 *argv[] __unused,
 
 	d->leaf = "exist.missing";
 	d->text[0] = '\0';
-	for (i = 0; i < LOADER_PREREQUISITES_EXIST_N; i++) {
+	for (i = 0; i < prerequisites_exist_n; i++) {
 		if (file_exists(prerequisites_exist[i]))
 			continue;
 		if (d->text[0] != '\0')
@@ -423,7 +580,7 @@ diagnose_prerequisites_verify(int argc __unused, CHAR16 *argv[] __unused,
 
 	d->leaf = "verify.missing";
 	d->text[0] = '\0';
-	for (i = 0; i < LOADER_PREREQUISITES_VERIFY_N; i++) {
+	for (i = 0; i < prerequisites_verify_n; i++) {
 #ifdef LOADER_VERIEXEC
 		if (file_verifies(prerequisites_verify[i]))
 			continue;
@@ -435,6 +592,32 @@ diagnose_prerequisites_verify(int argc __unused, CHAR16 *argv[] __unused,
 			(void)strlcat(d->text, ",", sizeof(d->text));
 		(void)strlcat(d->text, prerequisites_verify[i], sizeof(d->text));
 	}
+}
+
+/* The load origin in clear text: "<partition-guid>:<file-path>". */
+void
+diagnose_origin(int argc __unused, CHAR16 *argv[] __unused,
+    struct diagnosis *d)
+{
+	EFI_LOADED_IMAGE *img;
+	CHAR16 *name;
+	char guid[37];
+	size_t off;
+
+	d->leaf = "origin";
+	d->text[0] = '\0';
+	origin_partition_guid(guid, sizeof(guid));
+	(void)strlcpy(d->text, guid[0] != '\0' ? guid : "unknown",
+	    sizeof(d->text));
+	(void)strlcat(d->text, ":", sizeof(d->text));
+	off = strlen(d->text);
+	if (!EFI_ERROR(BS->HandleProtocol(IH, &origin_imgid,
+	    (void **)&img)) && img->FilePath != NULL &&
+	    (name = efi_devpath_name(img->FilePath)) != NULL) {
+		cpy16to8(name, d->text + off, sizeof(d->text) - off);
+		efi_free_devpath_name(name);
+	} else
+		(void)strlcat(d->text, "unknown", sizeof(d->text));
 }
 
 /* Per-variable byte counts of PK/KEK/db, e.g. "1590,1204,3841" or "none,...". */
