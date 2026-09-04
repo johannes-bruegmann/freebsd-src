@@ -60,6 +60,12 @@ elv_word_check() {
 	return 0
 }
 
+# elv_prologue -- what the generated script runs after the functions and
+# before the phases (every container defines one; the emitter calls it)
+elv_prologue() {
+	elv_word_check
+}
+
 # --- firing predicates ---
 
 when_always() { return 0; }
