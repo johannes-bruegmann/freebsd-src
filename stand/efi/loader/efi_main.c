@@ -28,6 +28,7 @@
 #include <efi.h>
 #include <eficonsctl.h>
 #include <efilib.h>
+#include "clock.h"			/* local platform trust: entry stamp */
 #include <stand.h>
 
 static EFI_PHYSICAL_ADDRESS heap;
@@ -102,6 +103,9 @@ efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *system_table)
 	}
 
 	setheap((void *)(uintptr_t)heap, (void *)(uintptr_t)(heap + heapsize));
+
+	/* Stamp the entry clocks: this boot's t0 (local platform trust). */
+	clock_start();
 
 	/* Start tslog now that we have a heap.*/
 	tslog_init();

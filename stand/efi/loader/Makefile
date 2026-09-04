@@ -35,6 +35,16 @@ SRCS=	autoload.c \
 	gate.c \
 	action.c \
 	policy.c \
+	evidence.c \
+	clock.c \
+	record.c \
+	tpm.c \
+	nvme.c \
+	measure_time.c \
+	measure_record.c \
+	measure_disk.c \
+	measure_platform.c \
+	measure_kernel.c \
 	foundation.c \
 	self_reloc.c \
 	vers.c \

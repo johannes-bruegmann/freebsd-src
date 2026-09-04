@@ -13,6 +13,7 @@
  */
 
 #include <stand.h>
+#include <stddef.h>
 #include <string.h>
 #include <fcntl.h>			/* O_RDONLY */
 #include <sys/stat.h>			/* stat */
@@ -28,6 +29,12 @@
 #endif
 
 #include "measurement.h"
+
+/* FreeBSD's efidevp.h spells SIZE_OF_FILEPATH_DEVICE_PATH with the gnu-efi
+ * EFI_FIELD_OFFSET, which this tree does not define. */
+#ifndef EFI_FIELD_OFFSET
+#define	EFI_FIELD_OFFSET(type, field)	((UINTN)offsetof(type, field))
+#endif
 
 static EFI_GUID GlobalVariableGUID = EFI_GLOBAL_VARIABLE;
 static EFI_GUID ImageSecurityDatabaseGUID =
@@ -64,6 +71,13 @@ sha256_bytes(const void *buf, size_t len, uint8_t out[static SHA256_DIGEST_LENGT
 	SHA256_Init(&ctx);
 	SHA256_Update(&ctx, buf, len);
 	SHA256_Final(out, &ctx);
+}
+
+void
+measurement_sha256(const void *buf, size_t len,
+    uint8_t out[static SHA256_DIGEST_LENGTH])
+{
+	sha256_bytes(buf, len, out);
 }
 
 void
