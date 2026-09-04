@@ -89,8 +89,22 @@ bool				 record_secret_present(void);
 /* Seal and write this boot's record; append the link to the medium. */
 bool	record_commit(uint8_t flags);
 
-/* Derived-key helper shared with the handover word and reveal (action.c). */
+/* Derived-key helper of the record itself (keys from the passphrase). */
 void	record_hmac(const char *purpose, const void *msg, size_t len,
+	    uint8_t out[static SHA256_DIGEST_LENGTH]);
+
+/*
+ * The WORD secret (LOADER_TRUST_WORD_SECRET, a string baseline) is the one
+ * secret that IS compiled in: earlboot must recompute the handover word
+ * and the reveal words without the passphrase. HMAC(HMAC(secret, purpose),
+ * msg) -- the same two steps a shell can do with openssl. Assumes: Secure
+ * Boot with the owner's db only -- a medium thief learns the secret but
+ * cannot run any other loader on this machine, and the owner's loader
+ * always records the truth. What the word proves is "the owner's loader
+ * ran through the KERNEL phase", not the medium's custody.
+ */
+bool	word_secret_present(void);
+void	word_hmac(const char *purpose, const void *msg, size_t len,
 	    uint8_t out[static SHA256_DIGEST_LENGTH]);
 
 /* Append to a file under /EFI/elvboot/ on the medium we were loaded from. */

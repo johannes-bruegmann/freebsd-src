@@ -159,6 +159,30 @@ record_hmac(const char *purpose, const void *msg, size_t len,
 	explicit_bzero(key, sizeof(key));
 }
 
+#ifdef LOADER_TRUST_WORD_SECRET
+static const char word_secret[] = LOADER_TRUST_WORD_SECRET;
+#else
+static const char word_secret[] = "";
+#endif
+
+bool
+word_secret_present(void)
+{
+	return (word_secret[0] != '\0');
+}
+
+void
+word_hmac(const char *purpose, const void *msg, size_t len,
+    uint8_t out[static SHA256_DIGEST_LENGTH])
+{
+	uint8_t key[SHA256_DIGEST_LENGTH];
+
+	hmac_sha256((const uint8_t *)word_secret, strlen(word_secret), purpose,
+	    strlen(purpose), key);
+	hmac_sha256(key, sizeof(key), msg, len, out);
+	explicit_bzero(key, sizeof(key));
+}
+
 /* AES-256-CTR in place: nonce is 16 bytes, counter in the last 4 (big endian). */
 static void
 aes_ctr(const uint8_t key[static 32], const uint8_t nonce[static 16],

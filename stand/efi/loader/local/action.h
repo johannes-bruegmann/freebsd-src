@@ -54,9 +54,11 @@
  *              never attached), nextboot (write an NVRAM one-shot that
  *              makes the NEXT boot divert, then reboot), handover (compute
  *              the handover word: HMAC over the ledger digest, the record
- *              counter and the duress/taint bits with the gate secret,
- *              published as loader.trust.<gate>.word for earlboot; assumes
- *              mac_bootlock makes loader.trust.* immutable in the kernel),
+ *              counter and the duress/taint bits with the compiled-in WORD
+ *              secret (record.h), published as loader.trust.<gate>.word for
+ *              earlboot, which holds the same secret; assumes Secure Boot
+ *              with the owner db only and mac_bootlock making loader.trust.*
+ *              immutable in the kernel),
  *              halt, panic, reboot, poweroff (EfiResetShutdown).
  */
 
