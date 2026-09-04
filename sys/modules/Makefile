@@ -227,6 +227,7 @@ SUBDIR=	\
 	${_lio} \
 	lpt \
 	${_mac_biba} \
+	mac_bootlock \
 	${_mac_bsdextended} \
 	${_mac_ddb} \
 	${_mac_do} \
