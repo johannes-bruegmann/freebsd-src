@@ -472,10 +472,16 @@ static void
 action_reveal(const struct appraisal *a)
 {
 	uint8_t d[SHA256_DIGEST_LENGTH], w[SHA256_DIGEST_LENGTH];
+	char hex[2 * SHA256_DIGEST_LENGTH + 1];
 	unsigned int i;
 
+	if (!word_secret_present()) {
+		printf("%s: no word secret compiled in\n", a->gate->name);
+		return;
+	}
 	evidence_digest(d);
-	record_hmac("reveal", d, sizeof(d), w);
+	hex_of(d, sizeof(d), hex);
+	word_hmac("reveal", hex, strlen(hex), w);
 	printf("%s:", a->gate->name);
 	for (i = 0; i < 4; i++)
 		printf(" %s", reveal_words[w[i] %
@@ -549,38 +555,39 @@ action_nextboot(const struct appraisal *a)
 }
 
 /*
- * The handover word: HMAC(record secret, ledger digest || counter || flags).
- * earlboot recomputes it from the same inputs it can see (the published
- * evidence) plus the flags it CANNOT see -- so it learns the flags by
- * trying: word == HMAC(..., 0) clean, == HMAC(..., TAINT) tainted, ==
- * HMAC(..., DURESS) coerced. Nothing else is derivable from the word.
+ * The handover word: HMAC(HMAC(word secret, "handover"),
+ * "<ledger hex>|<counter>|<flags>"). earlboot recomputes it from the
+ * same inputs it can see (the published ledger and counter) plus the flags
+ * it CANNOT see -- so it learns the flags by trying all eight: bit 1
+ * taint, bit 2 duress, bit 4 prompted. Nothing else is derivable from the word. The
+ * message is ASCII so a shell reproduces it byte for byte with openssl.
  */
 static void
 action_handover(const struct appraisal *a)
 {
 	const struct evidence *e = evidence();
 	const struct record_state *rs = record_state();
-	uint8_t d[SHA256_DIGEST_LENGTH], msg[SHA256_DIGEST_LENGTH + 9];
-	uint8_t w[SHA256_DIGEST_LENGTH];
+	uint8_t d[SHA256_DIGEST_LENGTH], w[SHA256_DIGEST_LENGTH];
 	uint64_t counter = rs->valid ? rs->prev.counter + 1 : 1;
-	uint8_t flags = 0;
-	char hex[2 * SHA256_DIGEST_LENGTH + 1];
-	unsigned int i;
+	unsigned int flags = 0;
+	char hex[2 * SHA256_DIGEST_LENGTH + 1], msg[128];
 
+	if (!word_secret_present())
+		return;
 	if (e->taint)
 		flags |= RECORD_F_TAINT;
 	if (e->duress)
 		flags |= RECORD_F_DURESS;
+	if (e->prompted > 0)
+		flags |= RECORD_F_PROMPTED;
 	evidence_digest(d);
-	memcpy(msg, d, sizeof(d));
-	for (i = 0; i < 8; i++)
-		msg[SHA256_DIGEST_LENGTH + i] = (counter >> (8 * i)) & 0xff;
-	msg[SHA256_DIGEST_LENGTH + 8] = flags;
-	record_hmac("handover", msg, sizeof(msg), w);
+	hex_of(d, sizeof(d), hex);
+	snprintf(msg, sizeof(msg), "%s|%llu|%u", hex,
+	    (unsigned long long)counter, flags);
+	word_hmac("handover", msg, strlen(msg), w);
+	publish_always(a->gate, "ledger", hex);
 	hex_of(w, sizeof(w), hex);
 	publish_always(a->gate, "word", hex);
-	hex_of(d, sizeof(d), hex);
-	publish_always(a->gate, "ledger", hex);
 	snprintf(hex, sizeof(hex), "%llu", (unsigned long long)counter);
 	publish_always(a->gate, "counter", hex);
 }
