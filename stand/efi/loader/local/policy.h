@@ -21,6 +21,15 @@
  * compile time (both emitted by GATE_DEFINE(id) in the same file). The phase is
  * structural (see phase_policies), so it is not a field. Policy tables are
  * POLICY_END-terminated; a policy's bindings are terminated by a NULL action.
+ *
+ * Phases and the ledger. Every appraisal a phase runs is noted in the
+ * evidence ledger (evidence.h) before the next phase starts, so a later
+ * phase can weigh what an earlier one saw: "a claim failed in BOOT", "a
+ * prompt was shown in LOADER", "an unlock happened" are ordinary
+ * measurements in KERNEL (measure_ledger_*). The KERNEL phase runs after
+ * the interactive window has closed and before ExitBootServices -- it is
+ * the last place where the loader can still refuse the kernel, divert
+ * into the rescue system, or hand the boot evidence over (handover_act).
  */
 
 #ifndef _LOCAL_POLICY_H_
@@ -44,6 +53,11 @@ enum phase {
 	PHASE_LOADER,		/* before the interactive loader (interact()); we are
 				   already in the loader binary. Hosts: loaderlock,
 				   strictwatch. */
+	PHASE_KERNEL,		/* before the kernel is entered (elf64_exec, before
+				   dev_cleanup/ExitBootServices): the interactive
+				   window is closed, the final howto/kenv are known,
+				   every earlier appraisal is in the ledger. Hosts:
+				   kernellock. */
 };
 
 /* A (predicate, action) pair: run the action iff the predicate fires. */
@@ -58,10 +72,34 @@ struct policy {
 	const struct binding	*bindings;	/* terminated by { .action = NULL } */
 };
 
-/* Firing predicates -- an open catalog (policy.c); add one as needed. */
+/*
+ * Firing predicates -- an open catalog (policy.c); add one as needed.
+ *
+ *   when_always   every time
+ *   when_fail     the gate's overall verdict is FAIL
+ *   when_pass     the gate's overall verdict is PASS
+ *   when_skipped  at least one claim of the gate was SKIPPED (no expectation
+ *                 provisioned, or disarmed): unprovisioned baselines stop
+ *                 being silent
+ *   when_maybe    probabilistically (about one boot in four): spot checks an
+ *                 observer cannot time. Noise, not cryptography -- a xorshift
+ *                 PRNG seeded from the cycle counter. Only ever ADDS a spot
+ *                 check; no critical check may exist solely behind it.
+ *   when_tainted  the evidence ledger carries a taint (taint_act fired, or
+ *                 an earlier phase failed)
+ *   when_duress   a duress tell was observed at a prompt (evidence.h). Bind
+ *                 only SILENT actions here: the point of duress is that the
+ *                 coercer sees nothing.
+ *   when_prompted an interactive action ran in this or an earlier phase
+ */
 bool	when_always(const struct appraisal *);
 bool	when_fail(const struct appraisal *);
 bool	when_pass(const struct appraisal *);
+bool	when_skipped(const struct appraisal *);
+bool	when_maybe(const struct appraisal *);
+bool	when_tainted(const struct appraisal *);
+bool	when_duress(const struct appraisal *);
+bool	when_prompted(const struct appraisal *);
 
 #define	FIRE(pred, act)		{ .fires = (pred), .action = (act) }
 #define	POLICY(id, ...)							\
@@ -73,7 +111,15 @@ bool	when_pass(const struct appraisal *);
 /* A layer supplies its policies for a phase (POLICY_END-terminated). */
 const struct policy	*phase_policies(enum phase);
 
-/* Run every policy of this phase: appraise its gate, then its bindings. */
+/*
+ * Run every policy of this phase: appraise its gate, note the appraisal in
+ * the ledger, then run each binding whose predicate fires. argv is the boot
+ * entry's LoadOptions; the first call keeps them (evidence.h) so a later
+ * phase without its own argv (KERNEL) measures the same record.
+ */
 void	local_run(enum phase, int argc, CHAR16 *argv[]);
+
+/* The KERNEL phase from the exec path, which has no argv of its own. */
+void	local_run_kernel(void);
 
 #endif /* _LOCAL_POLICY_H_ */

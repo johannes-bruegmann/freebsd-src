@@ -41,6 +41,9 @@
 #include "bootstrap.h"
 
 #include "loader_efi.h"
+#ifdef LOADER_VERIEXEC
+#include "policy.h"			/* local platform trust: KERNEL phase */
+#endif
 
 static int	elf64_exec(struct preloaded_file *amp);
 static int	elf64_obj_exec(struct preloaded_file *amp);
@@ -175,6 +178,15 @@ elf64_exec(struct preloaded_file *fp)
 	    copy_staging == COPY_STAGING_ENABLE ? "" : "not ",
 	    trampoline, PT4);
 	printf("Start @ 0x%lx ...\n", ehdr->e_entry);
+
+#ifdef LOADER_VERIEXEC
+	/*
+	 * The KERNEL phase of the local platform-trust gates: the last point
+	 * with file and console access, after the interactive window, before
+	 * the boot record is committed and ExitBootServices is called.
+	 */
+	local_run_kernel();
+#endif
 
 	/*
 	 * we have to cleanup here because net_cleanup() doesn't work after
