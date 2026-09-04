@@ -39,6 +39,12 @@ when_tainted()  { [ "$ELV_TAINT" = 1 ] || [ "$GATE_VERDICT" = fail ]; }
 when_duress()   { [ "$ELV_DURESS" = 1 ]; }
 when_prompted() { [ "$ELV_PROMPTED" = 1 ]; }
 
+# elv_prologue -- what the generated hook runs after the functions and
+# before its phase (every container defines one; the emitter calls it)
+elv_prologue() {
+	elv_flags_load
+}
+
 # elv_flags_load -- the flags of this boot as earlboot persisted them
 # (persist_act); absent appraisal = flags unknown = 0
 elv_flags_load() {
