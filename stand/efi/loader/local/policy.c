@@ -8,9 +8,10 @@
  * policy.c -- run the policies of a phase. Selection is the layer's
  * (phase_policies); execution is here: appraise the gate into its results,
  * note it in the ledger, bundle an appraisal, then run each binding whose
- * predicate fires. The BOOT phase first loads the previous boot's record,
- * the KERNEL phase last commits this boot's -- so every gate of a boot
- * sees the previous record and the committed one describes this boot.
+ * predicate fires. The KERNEL phase first loads the previous boot's record
+ * (its keys come from the passphrase typed in the LOADER phase) and last
+ * commits this boot's -- so every KERNEL gate sees the previous record and
+ * the committed one describes this boot.
  */
 
 #include <stand.h>
@@ -136,8 +137,8 @@ local_run(enum phase ph, int argc, CHAR16 *argv[])
 	const struct policy *p;
 
 	evidence_args(argc, argv);
-	if (ph == PHASE_BOOT)
-		(void)record_load();
+	if (ph == PHASE_KERNEL)
+		(void)record_load();	/* keys exist once the passphrase was typed */
 	for (p = phase_policies(ph); p->gate != NULL; p++)
 		policy_run(ph, p, argc, argv);
 	if (ph == PHASE_KERNEL)

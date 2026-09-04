@@ -20,15 +20,19 @@
  * the file lives on the medium the owner carries: a rollback of the one
  * disagrees with the other.
  *
- * Assumes: the record secret is compiled into the SIGNED loader on the
- * medium (site.mk slot LOADER_TRUST_RECORD_SECRET, hex); whoever holds the
- * medium can read it, whoever does not cannot forge or decrypt a record.
- * The anchors are read-only facts of hardware the loader does not control
- * (tpm.h, nvme.h); their absence is reported, never silently accepted.
+ * Keys: HKDF over the GELI passphrase the owner types at every boot (in
+ * kenv as kern.geom.eli.passphrase from password.lua on) and a compiled-in
+ * SALT (site.mk, LOADER_TRUST_RECORD_SALT). Nothing in the loader binary
+ * unlocks a record: a medium read with `strings` yields the salt, which is
+ * public by design. Assumes: the boot is GELI-protected and the passphrase
+ * is entered in the loader; the anchors are read-only facts of hardware
+ * the loader does not control (tpm.h, nvme.h). Absence of any of them is
+ * reported, never silently accepted.
  *
- * record_load() runs at the start of PHASE_BOOT, record_commit() at the end
- * of PHASE_KERNEL (after every gate of the boot has spoken): the committed
- * record describes THIS boot, the loaded one the previous.
+ * record_load() runs at the start of PHASE_KERNEL (the passphrase exists
+ * from the LOADER phase on), record_commit() at its end, after every gate
+ * of the boot has spoken: the committed record describes THIS boot, the
+ * loaded one the previous.
  *
  * Not a catalog: internal to the local layer.
  */

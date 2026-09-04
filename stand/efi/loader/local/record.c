@@ -100,23 +100,52 @@ hkdf_sha256(const uint8_t *ikm, size_t ilen, const char *info,
 	explicit_bzero(prk, sizeof(prk));
 }
 
-#ifdef LOADER_TRUST_RECORD_SECRET
-static const char record_secret[] = LOADER_TRUST_RECORD_SECRET;
+/*
+ * The key material is NOT in the binary. It is the GELI passphrase the
+ * owner types at every boot (password.lua leaves it in kenv as
+ * kern.geom.eli.passphrase for geliboot and the kernel), stretched with a
+ * compiled-in SALT (LOADER_TRUST_RECORD_SALT, site.mk) through HKDF. A
+ * loader binary read off the medium therefore yields nothing: the salt is
+ * public by design, the passphrase never rests anywhere. Consequence: the
+ * record exists only once the passphrase was entered, i.e. from the KERNEL
+ * phase on -- record_load() runs there, and every record claim is a
+ * KERNEL-phase claim. No passphrase in kenv -> no record (reported as
+ * absent, never silently accepted).
+ */
+#ifdef LOADER_TRUST_RECORD_SALT
+static const char record_salt[] = LOADER_TRUST_RECORD_SALT;
 #else
-static const char record_secret[] = "";
+static const char record_salt[] = "";
 #endif
+
+static const char *
+record_passphrase(void)
+{
+	const char *p = getenv("kern.geom.eli.passphrase");
+
+	return (p != NULL && p[0] != '\0') ? p : NULL;
+}
 
 bool
 record_secret_present(void)
 {
-	return (record_secret[0] != '\0');
+	return (record_salt[0] != '\0' && record_passphrase() != NULL);
 }
 
+/* HKDF(passphrase, salt || purpose): one derived key per purpose. */
 static void
 derive(const char *purpose, uint8_t out[static SHA256_DIGEST_LENGTH])
 {
-	hkdf_sha256((const uint8_t *)record_secret, strlen(record_secret),
-	    purpose, out);
+	const char *pass = record_passphrase();
+	char info[160];
+
+	if (pass == NULL) {
+		memset(out, 0, SHA256_DIGEST_LENGTH);
+		return;
+	}
+	snprintf(info, sizeof(info), "%s|%s", record_salt, purpose);
+	hkdf_sha256((const uint8_t *)pass, strlen(pass), info, out);
+	explicit_bzero(info, sizeof(info));
 }
 
 void
