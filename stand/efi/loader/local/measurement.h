@@ -151,17 +151,20 @@ struct measurement	measure_geli(int argc, CHAR16 *argv[]);
 struct measurement	measure_gpt(int argc, CHAR16 *argv[]);
 
 /*
- * --- the boot record and its anchors (measure_record.c) ---
+ * --- the boot record and its anchors (measure_record.c, KERNEL phase) ---
  * The loader keeps a record in NVRAM (record.h): boot counter, last boot
  * time, the TPM's reset count and clock, the NVMe's power-cycle count, and
  * a hash chain whose last link also lives on the boot medium. Every field
- * is encrypt-then-MAC with keys derived from the compiled-in record secret;
- * forging one needs the medium. What a rollback (snapshot the NVRAM before
+ * is encrypt-then-MAC under keys HKDF-derived from the GELI passphrase the
+ * owner types at boot plus a compiled-in salt: the binary holds no key, a
+ * stolen medium forges nothing. What a rollback (snapshot the NVRAM before
  * a foreign boot, restore it after) cannot fake are the anchors: the TPM's
  * resetCount, the NVMe's power cycles, and the chain link the medium
- * remembers. Assumes: the owner carries the medium; the case seal (SPI
- * flash) holds; a TPM (Intel PTT) and an NVMe are present -- without them
- * the respective claim is absent, which an armed expectation reports.
+ * remembers. Assumes: GELI passphrase entered in the loader; the case seal
+ * (SPI flash) holds; a TPM (Intel PTT) and an NVMe are present -- without
+ * them the respective claim is absent, which an armed expectation reports.
+ * All record claims belong to the KERNEL phase (the passphrase exists from
+ * the LOADER phase on).
  *
  * measure_record        1 iff the NVRAM record exists and its MAC verifies
  * measure_counter_step  1 iff every available anchor advanced by exactly
