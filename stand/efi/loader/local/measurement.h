@@ -96,7 +96,42 @@ extern const char *const	prerequisites_verify[];
 extern const unsigned int	prerequisites_exist_n;
 extern const unsigned int	prerequisites_verify_n;
 
-/* --- platform (measurement.c): firmware state, key store, board, marker --- */
+/*
+ * --- platform (measurement.c): firmware state, key store, board, marker ---
+ * measure_prerequisites_exist  number of EXIST prerequisites (the interpreter
+ *                    .lua chain, see above) found on the boot file system;
+ *                    the claim expects the full count. Deletion is the gap
+ *                    strict veriexec does not close.
+ * measure_prerequisites_verify number of VERIFY prerequisites (loader.conf,
+ *                    device.hints, the loader's reserve) that verify against
+ *                    the manifest; the claim expects the full count.
+ * measure_secureboot the firmware's SecureBoot variable (1 = enforcing).
+ *                    Absent when the variable does not exist -- an armed
+ *                    expectation reports that.
+ * measure_setupmode  the firmware's SetupMode variable (0 = user mode, the
+ *                    owner's keys are enrolled; 1 = anyone may enroll keys)
+ * measure_board      sha256 of the board serial from SMBIOS -- THIS machine.
+ *                    Assumes the firmware exposes SMBIOS and that rewriting
+ *                    it means opening the case (the seal tells).
+ * measure_keys       sha256 over PK||KEK||db -- the owner's key store; a
+ *                    re-enrolled or added certificate moves it. Absent when
+ *                    none of the three variables can be read.
+ * measure_marker     1 iff the boot entry's LoadOptions (argv) carry the
+ *                    owner's marker token (expected digest compiled in): the
+ *                    boot went through the provisioned Boot####, not a
+ *                    fallback path. A wiped entry fails.
+ * measure_strict     1 iff veriexec is verifying with the strict threshold
+ *                    in force (runtime read of Verifying, mode-independent)
+ * measure_ve_strict  1 iff /boot/loader.ve.strict exists, the marker file
+ *                    FreeBSD's convention expects; measured, never enforced
+ * measure_origin     sha256 over the canonical GUID text of our load origin
+ *                    (the partition the firmware loaded us from); site mk
+ *                    hashes the ESP's rawuuid the same way
+ * measure_origin_verified  1 iff the file at our own load origin is byte-
+ *                    identical to /boot/loader.efi.signed, the manifest-
+ *                    covered reserve: chains the ESP copy to the attested
+ *                    manifest without parsing it here
+ */
 struct measurement	measure_prerequisites_exist(int argc, CHAR16 *argv[]);
 struct measurement	measure_prerequisites_verify(int argc, CHAR16 *argv[]);
 struct measurement	measure_secureboot(int argc, CHAR16 *argv[]);
@@ -244,7 +279,33 @@ struct measurement	measure_ledger_failed(int argc, CHAR16 *argv[]);
 struct measurement	measure_ledger_prompted(int argc, CHAR16 *argv[]);
 struct measurement	measure_ledger_unlocked(int argc, CHAR16 *argv[]);
 
-/* --- diagnostics --- */
+/*
+ * --- diagnostics: human-readable evidence next to a verdict, published
+ * under loader.trust.<gate>.<leaf> when the claim names the diagnose ---
+ * diagnose_origin              origin: "<partition-guid>:<file-path>"
+ * diagnose_prerequisites_exist exist.missing: comma list of the EXIST
+ *                              prerequisites not found (empty = all present)
+ * diagnose_prerequisites_verify verify.missing: comma list of the VERIFY
+ *                              prerequisites that did not verify
+ * diagnose_keys                keys.bytes: byte counts of PK,KEK,db
+ * diagnose_marker              argv: the boot command line, marker redacted
+ * diagnose_images              images.count: number of loaded EFI images
+ * diagnose_pci                 pci.count: number of PCI devices
+ * diagnose_record              record: what the NVRAM record holds
+ * diagnose_counter_step        anchors: recorded/current TPM reset count, NV
+ *                              counter and NVMe power cycles
+ * diagnose_lastboot_gap        lastboot.gap.s: seconds since the recorded
+ *                              last boot, or unknown
+ * diagnose_tpm                 tpm: what the TPM answered, or none(<error>)
+ * diagnose_nvme                nvme: what the SMART page answered, or none
+ * diagnose_time_boot           time.boot.ms: entry-to-now in milliseconds
+ * diagnose_time_prompt         time.prompt: dwell, cadence, attempts
+ * diagnose_time_rtc_tsc        time.now: RTC, TSC and ticks per millisecond
+ * diagnose_howto               howto: the RB_* flags in hex and by name
+ * diagnose_preload             preload: total and unverified preloaded files
+ * diagnose_ledger              ledger: gates, failed, prompted, unlocked
+ *                              counts and the per-gate entries
+ */
 void	diagnose_origin(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_prerequisites_exist(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_prerequisites_verify(int argc, CHAR16 *argv[], struct diagnosis *);

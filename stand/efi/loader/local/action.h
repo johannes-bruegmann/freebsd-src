@@ -19,47 +19,58 @@
  * baseline no-op. No action inspects the verdict to decide whether to run --
  * that lives in the policy's predicate.
  *
- * The catalog, by family. Every entry names what it assumes.
+ * The catalog, one entry per action. Every entry names what it assumes.
  *
- * Baseline     proceed
- * Exposure     publish   results to kenv. silence  suppress every later
- *              publish of this boot -- the duress mode: the evidence still
- *              reaches the handover word, nothing reaches the console or a
- *              readable kenv leaf.
- * Evidence     report, message, prompt (free-text, recorded), sentinel
- *              (question; publishes ONLY a salted hash of the answer and of
- *              its first character -- classification lives in earlboot
- *              behind the encrypted root; requires loader.trust.<gate>.question
- *              and .salt), record (append the appraisal to the boot medium's
- *              ESP under /EFI/elvboot/ and to an NVRAM variable; assumes the
- *              medium is writable and that the reader is earlboot/elvbootd,
- *              which verify the record's MAC).
- * Response     confirm (y/N), lock (secret from kenv), unlock (compiled-in
- *              secret and duress secret, 3 tries), tarpit (sleep 2^attempts
- *              seconds before a prompt; assumes the coercer cannot afford to
- *              wait), lockout (halt once attempts reach loader.trust.<gate>.
- *              attempts), reveal (show four words derived from the gate
- *              secret and the ledger so the HUMAN can recognise the honest
- *              loader before typing a passphrase -- Qubes AEM inverted;
- *              assumes the words are read off a card the owner keeps and
- *              that a copied loader binary can also compute them, so this
- *              proves the BINARY, not the medium), taint (mark the ledger;
- *              the handover word carries it), expire (halt when the boot
- *              is later than loader.trust.<gate>.deadline, an epoch; the
- *              dead man's switch against a forgotten baseline), single
- *              (RB_SINGLE: the kernel stops in single user for inspection),
- *              divert (boot the rescue root instead: vfs.root.mountfrom from
- *              loader.trust.<gate>.rescue; the KERNEL stays the verified
- *              one from the boot medium, GELI of the production root is
- *              never attached), nextboot (write an NVRAM one-shot that
- *              makes the NEXT boot divert, then reboot), handover (compute
- *              the handover word: HMAC over the ledger digest, the record
- *              counter and the duress/taint bits with the compiled-in WORD
- *              secret (record.h), published as loader.trust.<gate>.word for
- *              earlboot, which holds the same secret; assumes Secure Boot
- *              with the owner db only and mac_bootlock making loader.trust.*
- *              immutable in the kernel),
- *              halt, panic, reboot, poweroff (EfiResetShutdown).
+ * proceed_act   the baseline no-op
+ * publish_act   write the appraisal to kenv (loader.trust.<gate>.*)
+ * silence_act   suppress every later publish of this boot -- the duress
+ *               mode: the evidence still reaches the handover word, nothing
+ *               reaches the console or a readable kenv leaf
+ * report_act    print the appraisal (verdict, per-claim results) on the
+ *               console
+ * message_act   print loader.trust.<gate>.message on the console
+ * prompt_act    ask loader.trust.<gate>.question as free text; the answer is
+ *               recorded as evidence, never compared
+ * sentinel_act  ask loader.trust.<gate>.question and publish ONLY a salted
+ *               hash of the answer and of its first character (requires
+ *               .salt) -- the classification lives in earlboot, behind the
+ *               encrypted root; no visible difference for any input
+ * record_act    append the appraisal to the boot medium's ESP under
+ *               /EFI/elvboot/ and to an NVRAM variable; assumes a writable
+ *               medium and that earlboot/elvbootd verify the record's MAC
+ * confirm_act   ask y/N on the console before going on
+ * lock_act      demand the secret loader.trust.<gate>.secret at a prompt
+ * unlock_act    demand the compiled-in secret (or the duress secret), three
+ *               tries; a duress entry proceeds silently marked
+ * tarpit_act    sleep 2^attempts seconds before a prompt; assumes the
+ *               coercer cannot afford to wait
+ * lockout_act   halt once the attempts reach loader.trust.<gate>.attempts
+ * reveal_act    show four words derived from the gate secret and the ledger
+ *               so the HUMAN recognises the honest loader before typing a
+ *               passphrase (Qubes AEM inverted); assumes the words are read
+ *               off a card the owner keeps -- a copied loader binary
+ *               computes them too, so this proves the BINARY, not the medium
+ * taint_act     mark the ledger; the handover word carries it
+ * expire_act    halt when the boot is later than loader.trust.<gate>.deadline
+ *               (an epoch): the dead man's switch against a forgotten
+ *               baseline
+ * single_act    RB_SINGLE: the kernel stops in single user for inspection
+ * divert_act    boot the rescue root instead (vfs.root.mountfrom from
+ *               loader.trust.<gate>.rescue); the KERNEL stays the verified
+ *               one from the boot medium, GELI of the production root is
+ *               never attached
+ * nextboot_act  write an NVRAM one-shot that makes the NEXT boot divert,
+ *               then reboot
+ * handover_act  compute the handover word: HMAC over the ledger digest, the
+ *               record counter and the duress/taint bits with the
+ *               compiled-in WORD secret (record.h), published as
+ *               loader.trust.<gate>.word for earlboot, which holds the same
+ *               secret; assumes Secure Boot with the owner db only and
+ *               mac_bootlock making loader.trust.* immutable in the kernel
+ * halt_act      halt the machine
+ * panic_act     panic the loader
+ * reboot_act    warm reset
+ * poweroff_act  power off (EfiResetShutdown)
  */
 
 #ifndef _LOCAL_ACTION_H_
