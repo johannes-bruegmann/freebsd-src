@@ -99,7 +99,7 @@ extern const unsigned int	prerequisites_verify_n;
 /*
  * --- platform (measurement.c): firmware state, key store, board, marker ---
  * measure_prerequisites_exist  number of EXIST prerequisites (the interpreter
- *                    .lua chain, see above) found on the boot file system;
+ *                    .lua chain, VE_MUST) found on the boot file system;
  *                    the claim expects the full count. Deletion is the gap
  *                    strict veriexec does not close.
  * measure_prerequisites_verify number of VERIFY prerequisites (loader.conf,
