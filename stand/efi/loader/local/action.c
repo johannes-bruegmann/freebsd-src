@@ -292,11 +292,14 @@ action_prompt(const struct appraisal *a)
 static void
 action_sentinel(const struct appraisal *a)
 {
-	const char *q = kenv(a, "question"), *salt = kenv(a, "salt");
+	const char *q = kenv(a, "question"), *kv = kenv(a, "salt");
 	const char *show = kenv(a, "display");
 	const struct record_state *rs = record_state();
 	char ans[128], buf[256], hash[2 * SHA256_DIGEST_LENGTH + 1];
-	char iso[32];
+	char salt[128], iso[32];
+
+	/* Own copy: a getenv() pointer is dead after the setenv() of publish. */
+	strlcpy(salt, kv != NULL ? kv : "", sizeof(salt));
 	struct stamp s;
 
 	if (q == NULL)
@@ -312,8 +315,6 @@ action_sentinel(const struct appraisal *a)
 	printf("%s ", q);
 	readsecret(ans, sizeof(ans));
 	printf("\n");
-	if (salt == NULL)
-		salt = "";
 	snprintf(buf, sizeof(buf), "%s%s", salt, ans);
 	sha256_hex(buf, strlen(buf), hash);
 	publish_always(a->gate, "answer", hash);
@@ -531,14 +532,15 @@ action_divert(const struct appraisal *a)
 	const char *root = kenv(a, "rescue");
 	char note[128];
 
-	if (root == NULL && record_nextboot_get(note, sizeof(note)))
-		root = note;
-	if (root == NULL)
+	/* Own copy: a getenv() pointer is dead after setenv()/unsetenv(). */
+	if (root != NULL)
+		strlcpy(note, root, sizeof(note));
+	else if (!record_nextboot_get(note, sizeof(note)))
 		return;
-	setenv("vfs.root.mountfrom", root, 1);
+	setenv("vfs.root.mountfrom", note, 1);
 	unsetenv("vfs.root.mountfrom.options");
 	record_nextboot_clear();
-	printf("%s: diverting to %s\n", a->gate->name, root);
+	printf("%s: diverting to %s\n", a->gate->name, note);
 }
 
 /* Leave the one-shot divert note for the NEXT boot, then reboot. */
