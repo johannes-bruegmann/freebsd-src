@@ -85,5 +85,8 @@ measure_freeze() {
 	if [ -s "$ELV_STATE/freeze" ]; then printf '1\n'; else printf '0\n'; fi
 }
 
+# diagnose_media_serial <daN> -- the medium's full inquiry line (vendor,
+# product, revision)
 diagnose_media_serial() { /sbin/camcontrol inquiry "$1" 2>/dev/null | /usr/bin/head -1; }
+# diagnose_rtc_gap -- heartbeat and now as epochs
 diagnose_rtc_gap() { [ -f "$ELV_STATE/heartbeat" ] && printf 'heartbeat=%s now=%s\n' "$(/usr/bin/stat -f %m "$ELV_STATE/heartbeat")" "$(/bin/date +%s)"; }

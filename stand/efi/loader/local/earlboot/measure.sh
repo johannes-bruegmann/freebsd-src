@@ -26,16 +26,20 @@ measure_word() {
 	printf '%s\n' "$ELV_WORD_OK"
 }
 
-# measure_flag_taint <gate> / measure_flag_duress <gate> / measure_flag_prompted
-# -- the bits the word carried (0/1), only meaningful when the word verified
+# measure_flag_taint <gate> -- the taint bit the handover word carried (0/1),
+# only meaningful when the word verified
 measure_flag_taint() {
 	[ "$ELV_WORD_OK" = 1 ] || return 0
 	printf '%s\n' "$ELV_TAINT"
 }
+# measure_flag_duress <gate> -- the duress bit the handover word carried
+# (0/1), only meaningful when the word verified
 measure_flag_duress() {
 	[ "$ELV_WORD_OK" = 1 ] || return 0
 	printf '%s\n' "$ELV_DURESS"
 }
+# measure_flag_prompted <gate> -- the prompted bit the handover word carried
+# (0/1), only meaningful when the word verified
 measure_flag_prompted() {
 	[ "$ELV_WORD_OK" = 1 ] || return 0
 	printf '%s\n' "$ELV_PROMPTED"
@@ -177,7 +181,11 @@ measure_answer_first() {
 
 # --- diagnostics ---
 
+# diagnose_kenv -- the loader.trust.* publications as one line
 diagnose_kenv() { /bin/kenv 2>/dev/null | /usr/bin/grep "^loader\.trust\." | /usr/bin/tr '\n' ' '; }
+# diagnose_word -- ok/taint/duress/prompted as the word check learned them
 diagnose_word() { printf 'ok=%s taint=%s duress=%s prompted=%s\n' "$ELV_WORD_OK" "$ELV_TAINT" "$ELV_DURESS" "$ELV_PROMPTED"; }
+# diagnose_book -- the book's last line (counter and stamp)
 diagnose_book() { [ -f "$ELV_STATE/book" ] && /usr/bin/tail -1 "$ELV_STATE/book"; }
+# diagnose_smart <nvmeN> -- power cycles, power-on hours, unsafe shutdowns
 diagnose_smart() { /sbin/nvmecontrol logpage -p 2 "$1" 2>/dev/null | /usr/bin/grep -E 'Power Cycles|Power On Hours|Unsafe Shutdowns' | /usr/bin/tr -s ' \t' ' ' | /usr/bin/tr '\n' ';'; }

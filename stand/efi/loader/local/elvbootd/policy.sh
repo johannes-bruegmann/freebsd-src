@@ -22,11 +22,19 @@ PHASES="STARTUP PERIODIC RESUME MEDIA"
 # --- firing predicates (identical to earlboot's; the runtime flags come
 # from the persisted appraisal of the last boot, read in the prologue) ---
 
+# when_always -- every time
 when_always() { return 0; }
+# when_fail -- the gate's overall verdict is fail
 when_fail()   { [ "$GATE_VERDICT" = fail ]; }
+# when_pass -- the gate's overall verdict is pass
 when_pass()   { [ "$GATE_VERDICT" = pass ]; }
+# when_skipped -- at least one claim of the gate was skipped: its measurement
+# returned nothing, so no verdict was possible
 when_skipped() { [ -n "$SKIPPED" ]; }
 
+# when_maybe -- about one run in four, a spot check an observer cannot time.
+# xorshift32 seeded from the entropy device: noise, not cryptography; only
+# ever ADDS a spot check.
 when_maybe() {
 	local s
 	s=$(/usr/bin/od -An -tu4 -N4 /dev/urandom | /usr/bin/tr -d ' ')
@@ -35,8 +43,12 @@ when_maybe() {
 	[ $((s & 3)) -eq 0 ]
 }
 
+# when_tainted -- the handover word carried taint, or this gate failed
 when_tainted()  { [ "$ELV_TAINT" = 1 ] || [ "$GATE_VERDICT" = fail ]; }
+# when_duress -- the handover word carried the duress bit; bind only SILENT
+# actions here, the coercer must see nothing
 when_duress()   { [ "$ELV_DURESS" = 1 ]; }
+# when_prompted -- an interactive action ran in the loader
 when_prompted() { [ "$ELV_PROMPTED" = 1 ]; }
 
 # elv_prologue -- what the generated hook runs after the functions and
