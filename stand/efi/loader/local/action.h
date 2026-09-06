@@ -33,7 +33,8 @@
  *               loader.trust.<gate>.display names (bootcount lastboot
  *               cycles unclean gates attempts) from the record and the
  *               ledger; not interactive; without a valid record it says
- *               so. The coercer reads it too: only harmless items
+ *               which (none, or not verified). The coercer reads it too:
+ *               only harmless items
  * prompt_act    ask loader.trust.<gate>.question as free text; the answer is
  *               recorded as evidence, never compared
  * sentinel_act  ask loader.trust.<gate>.question and publish ONLY a salted
