@@ -40,7 +40,9 @@
  * sentinel_act  ask loader.trust.<gate>.question and publish ONLY a salted
  *               hash of the answer and of its first character (requires
  *               .salt) -- the classification lives in earlboot, behind the
- *               encrypted root; no visible difference for any input
+ *               encrypted root; no visible difference for any input.
+ *               Shows display_act's context line first when .display
+ *               names items, so the owner reads before answering
  * record_act    append the appraisal to the boot medium's ESP under
  *               /EFI/elvboot/ and to an NVRAM variable; assumes a writable
  *               medium and that earlboot/elvbootd verify the record's MAC
