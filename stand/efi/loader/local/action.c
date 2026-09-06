@@ -36,6 +36,7 @@
 #include "evidence.h"
 #include "clock.h"
 #include "record.h"
+#include "nvme.h"
 
 #define	LISTLEN	192
 
@@ -264,6 +265,96 @@ action_message(const struct appraisal *a)
 	const char *msg = kenv(a, "message");
 
 	printf("%s\n", msg != NULL ? msg : "platform trust check failed");
+}
+
+/*
+ * The context line the owner recognises. The human is the one measurement
+ * instrument the platform cannot enumerate: they often know what SHOULD
+ * have been (the boot number, when the machine last ran, whether it was
+ * switched on without them). loader.trust.<gate>.display names the items,
+ * space-separated and shown in that order: bootcount (this boot's number),
+ * lastboot (RTC of the previous boot), cycles and unclean (NVMe power
+ * cycles and unsafe shutdowns since the previous record; an honest boot
+ * shows +1 and +0), gates (appraisals so far, ok/failed), attempts (hidden
+ * lines typed this boot). Not interactive: the judgement flows into what
+ * the owner does after the kernel starts. Without a valid record the line
+ * SAYS so and shows ? for the record items -- an absence is a fact worth
+ * reading too, not a blank. The coercer reads the line as well: only items
+ * whose knowledge helps no attacker belong here, and the selection is the
+ * owner's conf decision.
+ */
+static bool
+display_item_is(const char *p, size_t n, const char *name)
+{
+	return (strlen(name) == n && strncmp(p, name, n) == 0);
+}
+
+static void
+action_display(const struct appraisal *a)
+{
+	const char *items = kenv(a, "display"), *p;
+	const struct record_state *rs = record_state();
+	const struct evidence *e = evidence();
+	struct nvme_smart ns;
+	struct stamp s;
+	char iso[32];
+	size_t n;
+	bool nvme, first = true;
+
+	if (items == NULL || items[0] == '\0') {
+		printf("%s: display: no items configured\n", a->gate->name);
+		return;
+	}
+	nvme = rs->valid && nvme_smart(&ns);
+	printf("%s:", a->gate->name);
+	if (!rs->valid)
+		printf(" no valid record (first boot of this chain, or it did"
+		    " not verify) --");
+	for (p = items; *p != '\0'; p += n) {
+		while (*p == ' ')
+			p++;
+		if (*p == '\0')
+			break;
+		for (n = 0; p[n] != '\0' && p[n] != ' '; n++)
+			;
+		printf(first ? " " : ", ");
+		first = false;
+		if (display_item_is(p, n, "bootcount")) {
+			if (rs->valid)
+				printf("boot %llu",
+				    (unsigned long long)rs->prev.counter + 1);
+			else
+				printf("boot ?");
+		} else if (display_item_is(p, n, "lastboot")) {
+			if (rs->valid) {
+				s.epoch = rs->prev.boot_epoch;
+				s.nsec = 0;
+				s.tsc = 0;
+				clock_calendar(&s, NULL, NULL, iso, sizeof(iso));
+				printf("last %s", iso);
+			} else
+				printf("last ?");
+		} else if (display_item_is(p, n, "cycles")) {
+			if (nvme)
+				printf("cycles %+lld", (long long)
+				    (ns.power_cycles - rs->prev.nvme_cycles));
+			else
+				printf("cycles ?");
+		} else if (display_item_is(p, n, "unclean")) {
+			if (nvme)
+				printf("unclean %+lld", (long long)
+				    (ns.unsafe_shutdowns - rs->prev.nvme_unsafe));
+			else
+				printf("unclean ?");
+		} else if (display_item_is(p, n, "gates")) {
+			printf("gates %u ok %u failed",
+			    e->ngates - e->failed_gates, e->failed_gates);
+		} else if (display_item_is(p, n, "attempts")) {
+			printf("attempts %u", e->attempts);
+		} else
+			printf("?%.*s", (int)n, p);
+	}
+	printf("\n");
 }
 
 /* Pose a plaintext question, read the answer, record it (not verified). */
@@ -625,6 +716,7 @@ ACTION_DEFINE(publish,  action_publish);
 ACTION_DEFINE(silence,  action_silence);
 ACTION_DEFINE(report,   action_report);
 ACTION_DEFINE(message,  action_message);
+ACTION_DEFINE(display,  action_display);
 ACTION_DEFINE(prompt,   action_prompt);
 ACTION_DEFINE(sentinel, action_sentinel);
 ACTION_DEFINE(record,   action_record);
