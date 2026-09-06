@@ -25,7 +25,7 @@ The catalogs (parsed by elebake from the headers here):
                   cadence, RTC-against-TSC, attempts (measure_time.c);
                   howto flags, guarded kenv, preload verification,
                   the soft PCR, the ledger (measure_kernel.c)
-  action.h        the responses: publish/silence, report/message/
+  action.h        the responses: publish/silence, report/message/display/
                   prompt/sentinel/record, confirm/lock/unlock/tarpit/
                   lockout/reveal/taint/expire/single/divert/nextboot/
                   handover, halt/panic/reboot/poweroff

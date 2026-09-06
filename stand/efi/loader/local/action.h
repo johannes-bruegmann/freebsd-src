@@ -29,6 +29,11 @@
  * report_act    print the appraisal (verdict, per-claim results) on the
  *               console
  * message_act   print loader.trust.<gate>.message on the console
+ * display_act   show the context line the owner recognises: the items
+ *               loader.trust.<gate>.display names (bootcount lastboot
+ *               cycles unclean gates attempts) from the record and the
+ *               ledger; not interactive; without a valid record it says
+ *               so. The coercer reads it too: only harmless items
  * prompt_act    ask loader.trust.<gate>.question as free text; the answer is
  *               recorded as evidence, never compared
  * sentinel_act  ask loader.trust.<gate>.question and publish ONLY a salted
@@ -100,6 +105,7 @@ extern const struct action	publish_act;
 extern const struct action	silence_act;
 extern const struct action	report_act;
 extern const struct action	message_act;
+extern const struct action	display_act;
 extern const struct action	prompt_act;
 extern const struct action	sentinel_act;
 extern const struct action	record_act;
