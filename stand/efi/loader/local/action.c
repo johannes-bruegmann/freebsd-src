@@ -291,9 +291,9 @@ display_item_is(const char *p, size_t n, const char *name)
 }
 
 static void
-action_display(const struct appraisal *a)
+display_line(const struct appraisal *a, const char *items)
 {
-	const char *items = kenv(a, "display"), *p;
+	const char *p;
 	const struct record_state *rs = record_state();
 	const struct evidence *e = evidence();
 	struct nvme_smart ns;
@@ -302,10 +302,6 @@ action_display(const struct appraisal *a)
 	size_t n;
 	bool nvme, first = true;
 
-	if (items == NULL || items[0] == '\0') {
-		printf("%s: display: no items configured\n", a->gate->name);
-		return;
-	}
 	nvme = rs->valid && nvme_smart(&ns);
 	printf("%s:", a->gate->name);
 	if (!rs->valid)
@@ -359,6 +355,18 @@ action_display(const struct appraisal *a)
 	printf("\n");
 }
 
+static void
+action_display(const struct appraisal *a)
+{
+	const char *items = kenv(a, "display");
+
+	if (items == NULL || items[0] == '\0') {
+		printf("%s: display: no items configured\n", a->gate->name);
+		return;
+	}
+	display_line(a, items);
+}
+
 /* Pose a plaintext question, read the answer, record it (not verified). */
 static void
 action_prompt(const struct appraisal *a)
@@ -380,31 +388,24 @@ action_prompt(const struct appraisal *a)
  * Here only the salted hash of the answer and of its first character are
  * published (loader.trust.<gate>.answer / .answer.first); no reaction, no
  * visible difference for any input, including none. The context line the
- * owner may want to see first (bootcount, lastboot) comes from the record.
+ * owner sees first is display_act's: loader.trust.<gate>.display names the
+ * items, and the line stays on screen while the question waits.
  */
 static void
 action_sentinel(const struct appraisal *a)
 {
 	const char *q = kenv(a, "question"), *kv = kenv(a, "salt");
 	const char *show = kenv(a, "display");
-	const struct record_state *rs = record_state();
 	char ans[128], buf[256], hash[2 * SHA256_DIGEST_LENGTH + 1];
-	char salt[128], iso[32];
+	char salt[128];
 
 	/* Own copy: a getenv() pointer is dead after the setenv() of publish. */
 	strlcpy(salt, kv != NULL ? kv : "", sizeof(salt));
-	struct stamp s;
 
 	if (q == NULL)
 		return;
-	if (show != NULL && rs->valid) {
-		s.epoch = rs->prev.boot_epoch;
-		s.nsec = 0;
-		s.tsc = 0;
-		clock_calendar(&s, NULL, NULL, iso, sizeof(iso));
-		printf("boot %llu, last %s\n",
-		    (unsigned long long)rs->prev.counter, iso);
-	}
+	if (show != NULL)
+		display_line(a, show);
 	printf("%s ", q);
 	readsecret(ans, sizeof(ans));
 	printf("\n");
