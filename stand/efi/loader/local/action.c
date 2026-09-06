@@ -278,8 +278,9 @@ action_message(const struct appraisal *a)
  * shows +1 and +0), gates (appraisals so far, ok/failed), attempts (hidden
  * lines typed this boot). Not interactive: the judgement flows into what
  * the owner does after the kernel starts. Without a valid record the line
- * SAYS so and shows ? for the record items -- an absence is a fact worth
- * reading too, not a blank. The coercer reads the line as well: only items
+ * SAYS which (none, or present but not verified) and shows ? for the record
+ * items -- an absence is a fact worth reading too, not a blank. The coercer
+ * reads the line as well: only items
  * whose knowledge helps no attacker belong here, and the selection is the
  * owner's conf decision.
  */
@@ -308,8 +309,9 @@ action_display(const struct appraisal *a)
 	nvme = rs->valid && nvme_smart(&ns);
 	printf("%s:", a->gate->name);
 	if (!rs->valid)
-		printf(" no valid record (first boot of this chain, or it did"
-		    " not verify) --");
+		printf(rs->present ?
+		    " record present but it did not verify --" :
+		    " no record (first boot of this chain) --");
 	for (p = items; *p != '\0'; p += n) {
 		while (*p == ' ')
 			p++;
