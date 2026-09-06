@@ -94,6 +94,15 @@ void geli_probe_and_attach(struct open_file *f);
 void geli_add_key(geli_ukey key);
 void geli_import_key_buffer(struct keybuf *keybuf);
 void geli_export_key_buffer(struct keybuf *keybuf);
+/*
+ * SHA256 of the first user key geliboot derived this boot -- the PBKDF2
+ * output over passphrase and keyfiles, i.e. key material that already
+ * carries GELI's full per-guess cost. Available until bi_load() exports and
+ * wipes the keys; 0 when no provider was unlocked. Used by the loader's
+ * local layer as the input keying material of its record keys (record.c):
+ * a record then costs an attacker exactly what GELI costs, never less.
+ */
+int geli_ikm_digest(u_char out[32]);
 void geli_export_key_metadata(struct preloaded_file *kfp);
 
 #endif /* _GELIBOOT_H_ */

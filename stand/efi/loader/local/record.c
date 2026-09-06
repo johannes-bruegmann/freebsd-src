@@ -35,6 +35,8 @@
 #include "tpm.h"
 #include "nvme.h"
 #include "record.h"
+#include "action.h"		/* readsecret */
+#include "geliboot.h"		/* geli_ikm_digest */
 
 /* elvboot's variable namespace: {e1b00747-5e1f-4c0d-9a0e-000000e1b007} */
 static EFI_GUID elv_guid = { 0xe1b00747, 0x5e1f, 0x4c0d,
@@ -82,16 +84,16 @@ hmac_sha256(const uint8_t *key, size_t klen, const void *msg, size_t mlen,
 	explicit_bzero(opad, sizeof(opad));
 }
 
-/* HKDF-SHA256, one block (32 bytes) of output: OKM = HMAC(PRK, info || 1). */
+/* HKDF-SHA256 (RFC 5869), one block of output: PRK = HMAC(salt, IKM); OKM =
+ * HMAC(PRK, info || 0x01). */
 static void
-hkdf_sha256(const uint8_t *ikm, size_t ilen, const char *info,
-    uint8_t out[static SHA256_DIGEST_LENGTH])
+hkdf_sha256(const uint8_t *salt, size_t slen, const uint8_t *ikm, size_t ilen,
+    const char *info, uint8_t out[static SHA256_DIGEST_LENGTH])
 {
-	static const uint8_t salt[SHA256_DIGEST_LENGTH] = { 0 };
 	uint8_t prk[SHA256_DIGEST_LENGTH], t[128];
 	size_t n = strlen(info);
 
-	hmac_sha256(salt, sizeof(salt), ikm, ilen, prk);
+	hmac_sha256(salt, slen, ikm, ilen, prk);
 	if (n > sizeof(t) - 1)
 		n = sizeof(t) - 1;
 	memcpy(t, info, n);
@@ -101,16 +103,33 @@ hkdf_sha256(const uint8_t *ikm, size_t ilen, const char *info,
 }
 
 /*
- * The key material is NOT in the binary. It is the GELI passphrase the
- * owner types at every boot (password.lua leaves it in kenv as
- * kern.geom.eli.passphrase for geliboot and the kernel), stretched with a
- * compiled-in SALT (LOADER_TRUST_RECORD_SALT, site.mk) through HKDF. A
- * loader binary read off the medium therefore yields nothing: the salt is
- * public by design, the passphrase never rests anywhere. Consequence: the
- * record exists only once the passphrase was entered, i.e. from the KERNEL
- * phase on -- record_load() runs there, and every record claim is a
- * KERNEL-phase claim. No passphrase in kenv -> no record (reported as
- * absent, never silently accepted).
+ * The key material is NOT in the binary, and it is NOT the passphrase.
+ *
+ * IKM = SHA256 of GELI's first user key (geli_ikm_digest): the PBKDF2 output
+ * over the passphrase and the keyfiles that geliboot computed to unlock the
+ * root. Every guess at a record therefore costs an attacker exactly what a
+ * guess at GELI costs -- the record is never the cheaper way to the
+ * passphrase. Optionally the BOOT ANSWER is appended: a second secret from
+ * the owner's head, asked once per boot in the KERNEL phase when loader.conf
+ * says elvboot_answer_prompt="YES", stored nowhere -- not even hashed. With
+ * it a record proves the PAIR (passphrase, answer); a passphrase that was
+ * observed opens GELI but not the record, and a wrong answer makes the
+ * record invalid without saying which of the two was wrong.
+ *
+ * Salt = LOADER_TRUST_RECORD_SALT (site.mk): 32 random bytes compiled into
+ * the loader on the boot medium. We do not rely on its secrecy, but it
+ * lives where the record does not -- the NVRAM-only attacker lacks it.
+ *
+ * Three possessions, three parts: the head (passphrase, answer), the boot
+ * medium (salt), the laptop (record, marker, TPM, NVMe). One of them alone
+ * yields no oracle; all of them together face GELI's per-guess price.
+ *
+ * Consequence: keys exist only once GELI unlocked, i.e. from the KERNEL
+ * phase on -- record_load() runs there, every record claim is a KERNEL-phase
+ * claim; record_commit() is the last user of the material and wipes it
+ * before ExitBootServices. No unlocked provider -> no record (reported as
+ * absent, never silently accepted). A passphrase change changes the IKM and
+ * invalidates the previous record once -- a new chain starts.
  */
 #ifdef LOADER_TRUST_RECORD_SALT
 static const char record_salt[] = LOADER_TRUST_RECORD_SALT;
@@ -118,34 +137,71 @@ static const char record_salt[] = LOADER_TRUST_RECORD_SALT;
 static const char record_salt[] = "";
 #endif
 
-static const char *
-record_passphrase(void)
-{
-	const char *p = getenv("kern.geom.eli.passphrase");
+#define	ANSWER_MAX	128
+static uint8_t ikm[SHA256_DIGEST_LENGTH + ANSWER_MAX];
+static size_t ikm_len;		/* 0: not (yet) available */
+static bool asked;		/* the boot answer prompt ran */
 
-	return (p != NULL && p[0] != '\0') ? p : NULL;
+static bool
+answer_wanted(void)
+{
+	const char *v = getenv("elvboot_answer_prompt");
+
+	return (v != NULL && (strcmp(v, "YES") == 0 || strcmp(v, "yes") == 0));
+}
+
+/*
+ * Gather the material: GELI's digest, then -- once, and only when GELI
+ * already unlocked, so never before the passphrase -- the boot answer.
+ */
+static bool
+ikm_gather(void)
+{
+	char answer[ANSWER_MAX];
+	size_t n;
+
+	if (ikm_len > 0)
+		return (true);
+	if (record_salt[0] == '\0' || !geli_ikm_digest(ikm))
+		return (false);
+	ikm_len = SHA256_DIGEST_LENGTH;
+	if (answer_wanted() && !asked) {
+		asked = true;
+		printf("\nBoot answer: ");
+		readsecret(answer, sizeof(answer));
+		printf("\n");
+		n = strlen(answer);
+		memcpy(ikm + ikm_len, answer, n);
+		ikm_len += n;
+		explicit_bzero(answer, sizeof(answer));
+	}
+	return (true);
 }
 
 bool
 record_secret_present(void)
 {
-	return (record_salt[0] != '\0' && record_passphrase() != NULL);
+	return (ikm_gather());
 }
 
-/* HKDF(passphrase, salt || purpose): one derived key per purpose. */
+/* Wipe: the material's last user was record_commit(). */
+static void
+ikm_wipe(void)
+{
+	explicit_bzero(ikm, sizeof(ikm));
+	ikm_len = 0;
+}
+
+/* HKDF(salt = site salt, IKM = GELI digest || answer, info = purpose). */
 static void
 derive(const char *purpose, uint8_t out[static SHA256_DIGEST_LENGTH])
 {
-	const char *pass = record_passphrase();
-	char info[160];
-
-	if (pass == NULL) {
+	if (!ikm_gather()) {
 		memset(out, 0, SHA256_DIGEST_LENGTH);
 		return;
 	}
-	snprintf(info, sizeof(info), "%s|%s", record_salt, purpose);
-	hkdf_sha256((const uint8_t *)pass, strlen(pass), info, out);
-	explicit_bzero(info, sizeof(info));
+	hkdf_sha256((const uint8_t *)record_salt, strlen(record_salt), ikm,
+	    ikm_len, purpose, out);
 }
 
 void
@@ -367,10 +423,10 @@ record_load(void)
 
 	if (loaded)
 		return (&S);
-	loaded = true;
 	memset(&S, 0, sizeof(S));
 	if (!record_secret_present())
-		return (&S);
+		return (&S);	/* before GELI unlocked: not loaded, tried again later */
+	loaded = true;
 	if (!record_var_get(RECORD_VAR, sealed, &len))
 		return (&S);
 	S.present = true;
@@ -436,6 +492,7 @@ record_commit(uint8_t flags)
 	seal(&b, sealed);
 	ok = record_var_set(RECORD_VAR, sealed, sizeof(sealed));
 	(void)record_medium_append("chain", b.chain, sizeof(b.chain));
+	ikm_wipe();
 	explicit_bzero(&b, sizeof(b));
 	return (ok);
 }

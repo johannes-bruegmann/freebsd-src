@@ -94,6 +94,19 @@ geli_add_key(geli_ukey key)
 	}
 }
 
+int
+geli_ikm_digest(u_char out[32])
+{
+	SHA256_CTX ctx;
+
+	if (nsaved_keys == 0)
+		return (0);
+	SHA256_Init(&ctx);
+	SHA256_Update(&ctx, saved_keys[0], G_ELI_USERKEYLEN);
+	SHA256_Final(out, &ctx);
+	return (1);
+}
+
 static int
 geli_findkey(struct geli_dev *gdev, u_char *mkey)
 {
