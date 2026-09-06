@@ -56,7 +56,7 @@ halt_boot(const char *why)
  * dwell (first key to Enter) and the longest pause between two keys go to
  * the ledger: both are duress tells the coercer cannot forbid.
  */
-static void
+void
 readsecret(char *buf, size_t sz)
 {
 	struct stamp t0, tk, tprev;

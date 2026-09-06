@@ -78,6 +78,13 @@
 
 struct appraisal;
 
+/*
+ * The hidden line read every prompt of this layer shares (action.c): no
+ * echo, dwell and cadence into the ledger, one attempt counted. Also the
+ * boot answer prompt of the record (record.c).
+ */
+void	readsecret(char *buf, size_t sz);
+
 struct action {
 	const char	*name;
 	void		(*execute)(const struct appraisal *);

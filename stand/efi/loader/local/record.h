@@ -20,14 +20,17 @@
  * the file lives on the medium the owner carries: a rollback of the one
  * disagrees with the other.
  *
- * Keys: HKDF over the GELI passphrase the owner types at every boot (in
- * kenv as kern.geom.eli.passphrase from password.lua on) and a compiled-in
- * SALT (site.mk, LOADER_TRUST_RECORD_SALT). Nothing in the loader binary
- * unlocks a record: a medium read with `strings` yields the salt, which is
- * public by design. Assumes: the boot is GELI-protected and the passphrase
- * is entered in the loader; the anchors are read-only facts of hardware
- * the loader does not control (tpm.h, nvme.h). Absence of any of them is
- * reported, never silently accepted.
+ * Keys: HKDF-SHA256 with IKM = SHA256 of GELI's derived user key (the PBKDF2
+ * output geliboot computed from passphrase and keyfiles -- a guess at the
+ * record costs what a guess at GELI costs), optionally followed by the BOOT
+ * ANSWER (loader.conf elvboot_answer_prompt="YES": one hidden line asked in
+ * the KERNEL phase, kept nowhere, so a record proves the PAIR and an observed
+ * passphrase opens GELI but not the record); salt = LOADER_TRUST_RECORD_SALT
+ * from site.mk, 32 random bytes that live on the boot medium, not on the
+ * laptop. Nothing in the loader binary unlocks a record. Assumes: the boot
+ * is GELI-protected and unlocked in the loader; the anchors are read-only
+ * facts of hardware the loader does not control (tpm.h, nvme.h). Absence of
+ * any of them is reported, never silently accepted.
  *
  * record_load() runs at the start of PHASE_KERNEL (the passphrase exists
  * from the LOADER phase on), record_commit() at its end, after every gate

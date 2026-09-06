@@ -190,9 +190,11 @@ struct measurement	measure_gpt(int argc, CHAR16 *argv[]);
  * The loader keeps a record in NVRAM (record.h): boot counter, last boot
  * time, the TPM's reset count and clock, the NVMe's power-cycle count, and
  * a hash chain whose last link also lives on the boot medium. Every field
- * is encrypt-then-MAC under keys HKDF-derived from the GELI passphrase the
- * owner types at boot plus a compiled-in salt: the binary holds no key, a
- * stolen medium forges nothing. What a rollback (snapshot the NVRAM before
+ * is encrypt-then-MAC under keys HKDF-derived from GELI's own derived key
+ * material (behind PBKDF2), an optional boot answer from the owner's head,
+ * and a random salt compiled into the loader on the medium: the binary
+ * holds no key, a stolen medium forges nothing, a record never costs less
+ * to attack than GELI. What a rollback (snapshot the NVRAM before
  * a foreign boot, restore it after) cannot fake are the anchors: the TPM's
  * resetCount, the NVMe's power cycles, and the chain link the medium
  * remembers. Assumes: GELI passphrase entered in the loader; the case seal
