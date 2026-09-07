@@ -150,7 +150,7 @@ measure_esp_digest() {
 # measure_smart <nvmeN> -- the controller's power-cycle count (SMART log
 # page 2), a counter no host command resets. Assumes an NVMe controller.
 measure_smart() {
-	/sbin/nvmecontrol logpage -p 2 "$1" 2>/dev/null | /usr/bin/awk -F: '/Power Cycles/ { gsub(/[ \t]/, "", $2); print $2; exit }'
+	/sbin/nvmecontrol logpage -p 2 "$1" 2>/dev/null | /usr/bin/awk -F: '/^Power cycles:/ { gsub(/[ \t]/, "", $2); print $2; exit }'
 }
 
 # measure_smart_step <nvmeN> -- 1 iff the power-cycle count is exactly the
@@ -188,4 +188,4 @@ diagnose_word() { printf 'ok=%s taint=%s duress=%s prompted=%s\n' "$ELV_WORD_OK"
 # diagnose_book -- the book's last line (counter and stamp)
 diagnose_book() { [ -f "$ELV_STATE/book" ] && /usr/bin/tail -1 "$ELV_STATE/book"; }
 # diagnose_smart <nvmeN> -- power cycles, power-on hours, unsafe shutdowns
-diagnose_smart() { /sbin/nvmecontrol logpage -p 2 "$1" 2>/dev/null | /usr/bin/grep -E 'Power Cycles|Power On Hours|Unsafe Shutdowns' | /usr/bin/tr -s ' \t' ' ' | /usr/bin/tr '\n' ';'; }
+diagnose_smart() { /sbin/nvmecontrol logpage -p 2 "$1" 2>/dev/null | /usr/bin/grep -E '^Power cycles:|^Power on hours:|^Unsafe shutdowns:' | /usr/bin/tr -s ' \t' ' ' | /usr/bin/tr '\n' ';'; }
