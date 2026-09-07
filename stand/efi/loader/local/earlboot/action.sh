@@ -14,9 +14,9 @@
 elv_finding() {
 	printf '%s %s %s failed=[%s] passed=[%s] skipped=[%s]\n' \
 	    "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$GATE_VERDICT" \
-	    "$(printf '%s' "$FAILED" | /usr/bin/tr ' ' ',')" \
-	    "$(printf '%s' "$PASSED" | /usr/bin/tr ' ' ',')" \
-	    "$(printf '%s' "$SKIPPED" | /usr/bin/tr ' ' ',')"
+	    "$(printf '%s' "${FAILED# }" | /usr/bin/tr ' ' ',')" \
+	    "$(printf '%s' "${PASSED# }" | /usr/bin/tr ' ' ',')" \
+	    "$(printf '%s' "${SKIPPED# }" | /usr/bin/tr ' ' ',')"
 }
 
 # log_act -- syslog, the baseline record
@@ -73,7 +73,7 @@ book_act() {
 	# no glob: the generated script runs under set -f
 	for dev in nvme0 nvme1 nvme2 nvme3 nvme4 nvme5 nvme6 nvme7; do
 		[ -c "/dev/$dev" ] || continue
-		c=$(/sbin/nvmecontrol logpage -p 2 "$dev" 2>/dev/null | /usr/bin/awk -F: '/Power Cycles/ { gsub(/[ \t]/, "", $2); print $2; exit }')
+		c=$(/sbin/nvmecontrol logpage -p 2 "$dev" 2>/dev/null | /usr/bin/awk -F: '/^Power cycles:/ { gsub(/[ \t]/, "", $2); print $2; exit }')
 		[ -n "$c" ] && printf '%s\n' "$c" > "$ELV_STATE/smart-$dev"
 	done
 }
