@@ -58,6 +58,7 @@ persist_act() {
 		printf 'gate=%s verdict=%s\n' "$1" "$GATE_VERDICT"
 		printf 'passed=%s\nfailed=%s\nskipped=%s\n' "$PASSED" "$FAILED" "$SKIPPED"
 		printf 'word=%s taint=%s duress=%s prompted=%s\n' "$ELV_WORD_OK" "$ELV_TAINT" "$ELV_DURESS" "$ELV_PROMPTED"
+		printf 'diag=%s\n' "$DIAG"
 	} > "$ELV_STATE/appraisal-$1"
 }
 
@@ -69,9 +70,9 @@ book_act() {
 	/bin/mkdir -p "$ELV_STATE"
 	c=$(/bin/kenv -q "loader.trust.$ELV_GATE_LOADER.counter" 2>/dev/null)
 	[ -n "$c" ] && printf '%s %s\n' "$c" "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$ELV_STATE/book"
-	for dev in /dev/nvme[0-9]; do
-		[ -c "$dev" ] || continue
-		dev=${dev#/dev/}
+	# no glob: the generated script runs under set -f
+	for dev in nvme0 nvme1 nvme2 nvme3 nvme4 nvme5 nvme6 nvme7; do
+		[ -c "/dev/$dev" ] || continue
 		c=$(/sbin/nvmecontrol logpage -p 2 "$dev" 2>/dev/null | /usr/bin/awk -F: '/Power Cycles/ { gsub(/[ \t]/, "", $2); print $2; exit }')
 		[ -n "$c" ] && printf '%s\n' "$c" > "$ELV_STATE/smart-$dev"
 	done
