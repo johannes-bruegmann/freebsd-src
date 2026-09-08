@@ -65,8 +65,13 @@ evidence_note_appraisal(unsigned int phase, const struct appraisal *a)
 void
 evidence_note_action(const char *name)
 {
+	/*
+	 * Only actions at which a SECRET is typed count: the prompted bit of
+	 * the handover word means "a hidden line was read", not "a key was
+	 * pressed" -- report_act's pause and reveal_act's words do not.
+	 */
 	static const char *const interactive[] = { "prompt", "sentinel",
-	    "confirm", "lock", "unlock", "reveal", "report", NULL };
+	    "confirm", "lock", "unlock", NULL };
 	unsigned int i;
 
 	for (i = 0; interactive[i] != NULL; i++)
