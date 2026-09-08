@@ -37,7 +37,7 @@ when_skipped() { [ -n "$SKIPPED" ]; }
 # ever ADDS a spot check.
 when_maybe() {
 	local s
-	s=$(/usr/bin/od -An -tu4 -N4 /dev/urandom | /usr/bin/tr -d ' ')
+	s=$($OD -An -tu4 -N4 /dev/urandom | $TR -d ' ')
 	[ -n "$s" ] || s=2463534242
 	s=$(( (s ^ (s << 13)) & 0xffffffff )); s=$(( (s ^ (s >> 17)) & 0xffffffff )); s=$(( (s ^ (s << 5)) & 0xffffffff ))
 	[ $((s & 3)) -eq 0 ]
@@ -64,9 +64,9 @@ elv_flags_load() {
 	ELV_WORD_OK=0; ELV_TAINT=0; ELV_DURESS=0; ELV_PROMPTED=0
 	f="$ELV_STATE/appraisal-$ELV_GATE_LOADER"
 	[ -f "$f" ] || return 0
-	ELV_WORD_OK=$(/usr/bin/sed -n 's/^word=\([01]\) .*/\1/p' "$f")
-	ELV_TAINT=$(/usr/bin/sed -n 's/.* taint=\([01]\) .*/\1/p' "$f")
-	ELV_DURESS=$(/usr/bin/sed -n 's/.* duress=\([01]\) .*/\1/p' "$f")
-	ELV_PROMPTED=$(/usr/bin/sed -n 's/.* prompted=\([01]\)$/\1/p' "$f")
+	ELV_WORD_OK=$($SED -n 's/^word=\([01]\) .*/\1/p' "$f")
+	ELV_TAINT=$($SED -n 's/.* taint=\([01]\) .*/\1/p' "$f")
+	ELV_DURESS=$($SED -n 's/.* duress=\([01]\) .*/\1/p' "$f")
+	ELV_PROMPTED=$($SED -n 's/.* prompted=\([01]\)$/\1/p' "$f")
 	return 0
 }

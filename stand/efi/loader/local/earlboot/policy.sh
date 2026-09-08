@@ -41,14 +41,14 @@ PHASES="SYSINIT MOUNTED"
 elv_word_check() {
 	local word ledger counter key try msg f
 	ELV_WORD_OK=0; ELV_TAINT=0; ELV_DURESS=0; ELV_PROMPTED=0
-	word=$(/bin/kenv -q "loader.trust.$ELV_GATE_LOADER.word" 2>/dev/null) || return 0
-	ledger=$(/bin/kenv -q "loader.trust.$ELV_GATE_LOADER.ledger" 2>/dev/null) || return 0
-	counter=$(/bin/kenv -q "loader.trust.$ELV_GATE_LOADER.counter" 2>/dev/null) || return 0
+	word=$($KENV -q "loader.trust.$ELV_GATE_LOADER.word" 2>/dev/null) || return 0
+	ledger=$($KENV -q "loader.trust.$ELV_GATE_LOADER.ledger" 2>/dev/null) || return 0
+	counter=$($KENV -q "loader.trust.$ELV_GATE_LOADER.counter" 2>/dev/null) || return 0
 	[ -n "$word" ] && [ -n "$ledger" ] && [ -n "$counter" ] || return 0
-	key=$(printf '%s' handover | /usr/bin/openssl dgst -sha256 -mac HMAC -macopt "key:$ELV_WORD_SECRET" -r 2>/dev/null | /usr/bin/cut -c1-64)
+	key=$(printf '%s' handover | $OPENSSL dgst -sha256 -mac HMAC -macopt "key:$ELV_WORD_SECRET" -r 2>/dev/null | $CUT -c1-64)
 	for f in 0 1 2 3 4 5 6 7; do
 		msg="$ledger|$counter|$f"
-		try=$(printf '%s' "$msg" | /usr/bin/openssl dgst -sha256 -mac HMAC -macopt "hexkey:$key" -r 2>/dev/null | /usr/bin/cut -c1-64)
+		try=$(printf '%s' "$msg" | $OPENSSL dgst -sha256 -mac HMAC -macopt "hexkey:$key" -r 2>/dev/null | $CUT -c1-64)
 		if [ "$try" = "$word" ]; then
 			ELV_WORD_OK=1
 			[ $((f & 1)) -ne 0 ] && ELV_TAINT=1
@@ -84,7 +84,7 @@ when_skipped() { [ -n "$SKIPPED" ]; }
 # not cryptography; only ever ADDS a spot check.
 when_maybe() {
 	local s
-	s=$(/usr/bin/od -An -tu4 -N4 /dev/urandom | /usr/bin/tr -d ' ')
+	s=$($OD -An -tu4 -N4 /dev/urandom | $TR -d ' ')
 	[ -n "$s" ] || s=2463534242
 	s=$(( (s ^ (s << 13)) & 0xffffffff )); s=$(( (s ^ (s >> 17)) & 0xffffffff )); s=$(( (s ^ (s << 5)) & 0xffffffff ))
 	[ $((s & 3)) -eq 0 ]
