@@ -44,6 +44,13 @@ mark_act() {
 	elv_finding "$1" > "$ELV_STATE/mark-$1"
 }
 
+# answer_matched_act -- note that an answer class matched this run; the
+# catch-all class (measure_answer_matched) reads it. Bind it, with the
+# class's own reaction, in EVERY class template
+answer_matched_act() {
+	ELV_ANSWER_MATCHED=1
+}
+
 # freeze_act -- the mark elebake honours: trust operations refuse until the
 # owner acknowledges (elebake stage ... refuses while $ELV_STATE/freeze exists)
 freeze_act() {

@@ -64,6 +64,7 @@ elv_word_check() {
 # before the phases (every container defines one; the emitter calls it)
 elv_prologue() {
 	elv_word_check
+	ELV_ANSWER_MATCHED=0
 }
 
 # --- firing predicates ---
