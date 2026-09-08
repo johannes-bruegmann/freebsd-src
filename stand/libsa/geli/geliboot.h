@@ -103,6 +103,17 @@ void geli_export_key_buffer(struct keybuf *keybuf);
  * a record then costs an attacker exactly what GELI costs, never less.
  */
 int geli_ikm_digest(u_char out[32]);
+/*
+ * Key files for geli_probe(): registered by the caller (the loader reads
+ * them from the preloaded <prov>:geli_keyfile<n> files), fed into the user
+ * key HMAC before the passphrase part -- the kernel's order. Cleared by the
+ * caller once the key is found. Was a TODO in geli_probe().
+ */
+#define	GELI_KEYFILES_MAX	4
+#define	GELI_KEYFILE_MAX	(64 * 1024)
+void geli_keyfile_add(const void *data, size_t len);
+void geli_keyfile_clear(void);
+int geli_probe(struct geli_dev *gdev, const char *passphrase, u_char *mkeyp);
 void geli_export_key_metadata(struct preloaded_file *kfp);
 
 #endif /* _GELIBOOT_H_ */
