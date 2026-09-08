@@ -136,6 +136,13 @@ preload_walk(void)
 	preload_total = preload_bad = 0;
 	preload_list[0] = '\0';
 	for (fp = preloaded_files; fp != NULL; fp = fp->f_next) {
+		/*
+		 * The loader's own blobs (efi_rng_seed, TSLOG, ...) are preloaded
+		 * without a path: nothing on any medium, nothing a manifest could
+		 * name. Files are what the manifest covers.
+		 */
+		if (fp->f_name == NULL || strchr(fp->f_name, '/') == NULL)
+			continue;
 		preload_total++;
 #ifdef LOADER_VERIEXEC
 		fd = open(fp->f_name, O_RDONLY);
