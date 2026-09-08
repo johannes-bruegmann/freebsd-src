@@ -14,7 +14,7 @@
 # reports it (gpart backup), the runtime twin of the loader's GPT digest.
 # Assumes gpart(8) can read the disk.
 measure_geom() {
-	/sbin/gpart backup "$1" 2>/dev/null | /sbin/sha256 -q 2>/dev/null
+	$GPART backup "$1" 2>/dev/null | $SHA256 -q 2>/dev/null
 }
 
 # measure_rtc_gap <max-seconds> -- 1 iff the wall clock moved at most
@@ -24,8 +24,8 @@ measure_geom() {
 measure_rtc_gap() {
 	local now stamp gap
 	[ -f "$ELV_STATE/heartbeat" ] || return 0
-	now=$(/bin/date +%s)
-	stamp=$(/usr/bin/stat -f %m "$ELV_STATE/heartbeat" 2>/dev/null) || return 0
+	now=$($DATE +%s)
+	stamp=$($STAT -f %m "$ELV_STATE/heartbeat" 2>/dev/null) || return 0
 	gap=$((now - stamp))
 	if [ "$gap" -ge 0 ] && [ "$gap" -le "$1" ]; then printf '1\n'; else printf '0\n'; fi
 }
@@ -34,12 +34,12 @@ measure_rtc_gap() {
 # (MEDIA phase: $1 is the cdev devd announced; a claim expects THE anchor).
 # Assumes a USB/SD reader visible to CAM.
 measure_media_serial() {
-	/sbin/camcontrol inquiry "$1" -S 2>/dev/null | /usr/bin/tr -d ' \n'
+	$CAMCONTROL inquiry "$1" -S 2>/dev/null | $TR -d ' \n'
 }
 
 # measure_media_partitions <daN> -- sha256 of the medium's partition table
 measure_media_partitions() {
-	/sbin/gpart backup "$1" 2>/dev/null | /sbin/sha256 -q 2>/dev/null
+	$GPART backup "$1" 2>/dev/null | $SHA256 -q 2>/dev/null
 }
 
 # measure_media_bootcode <daN> -- sha256 of EFI/BOOT/BOOTX64.EFI on the
@@ -47,12 +47,12 @@ measure_media_partitions() {
 measure_media_bootcode() {
 	local mnt out
 	[ -c "/dev/$1p1" ] || return 0
-	mnt=$(/usr/bin/mktemp -d) || return 0
-	if /sbin/mount -t msdosfs -o ro "/dev/$1p1" "$mnt" 2>/dev/null; then
-		out=$(/sbin/sha256 -q "$mnt/EFI/BOOT/BOOTX64.EFI" 2>/dev/null)
-		/sbin/umount "$mnt" 2>/dev/null
+	mnt=$($MKTEMP -d) || return 0
+	if $MOUNT -t msdosfs -o ro "/dev/$1p1" "$mnt" 2>/dev/null; then
+		out=$($SHA256 -q "$mnt/EFI/BOOT/BOOTX64.EFI" 2>/dev/null)
+		$UMOUNT "$mnt" 2>/dev/null
 	fi
-	/bin/rmdir "$mnt" 2>/dev/null
+	$RMDIR "$mnt" 2>/dev/null
 	[ -n "$out" ] && printf '%s\n' "$out"
 }
 
@@ -63,14 +63,14 @@ measure_media_bootcode() {
 measure_media_chain() {
 	local mnt have want
 	[ -f "$ELV_STATE/chain" ] || return 0
-	want=$(/bin/cat "$ELV_STATE/chain")
+	want=$($CAT "$ELV_STATE/chain")
 	[ -c "/dev/$1p1" ] || return 0
-	mnt=$(/usr/bin/mktemp -d) || return 0
-	if /sbin/mount -t msdosfs -o ro "/dev/$1p1" "$mnt" 2>/dev/null; then
-		have=$(/usr/bin/tail -c 32 "$mnt/EFI/elvboot/chain" 2>/dev/null | /usr/bin/od -An -tx1 | /usr/bin/tr -d ' \n')
-		/sbin/umount "$mnt" 2>/dev/null
+	mnt=$($MKTEMP -d) || return 0
+	if $MOUNT -t msdosfs -o ro "/dev/$1p1" "$mnt" 2>/dev/null; then
+		have=$($TAIL -c 32 "$mnt/EFI/elvboot/chain" 2>/dev/null | $OD -An -tx1 | $TR -d ' \n')
+		$UMOUNT "$mnt" 2>/dev/null
 	fi
-	/bin/rmdir "$mnt" 2>/dev/null
+	$RMDIR "$mnt" 2>/dev/null
 	[ -n "$have" ] || return 0
 	if [ "$have" = "$want" ]; then printf '1\n'; else printf '0\n'; fi
 }
@@ -87,6 +87,6 @@ measure_freeze() {
 
 # diagnose_media_serial <daN> -- the medium's full inquiry line (vendor,
 # product, revision)
-diagnose_media_serial() { /sbin/camcontrol inquiry "$1" 2>/dev/null | /usr/bin/head -1; }
+diagnose_media_serial() { $CAMCONTROL inquiry "$1" 2>/dev/null | $HEAD -1; }
 # diagnose_rtc_gap -- heartbeat and now as epochs
-diagnose_rtc_gap() { [ -f "$ELV_STATE/heartbeat" ] && printf 'heartbeat=%s now=%s\n' "$(/usr/bin/stat -f %m "$ELV_STATE/heartbeat")" "$(/bin/date +%s)"; }
+diagnose_rtc_gap() { [ -f "$ELV_STATE/heartbeat" ] && printf 'heartbeat=%s now=%s\n' "$($STAT -f %m "$ELV_STATE/heartbeat")" "$($DATE +%s)"; }

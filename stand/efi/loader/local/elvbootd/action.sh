@@ -13,8 +13,8 @@
 # heartbeat_act -- the watch ran: touch the heartbeat earlboot claims at the
 # next boot, and remember the chain link the loader published this boot
 heartbeat_act() {
-	/bin/mkdir -p "$ELV_STATE"
-	/usr/bin/touch "$ELV_STATE/heartbeat"
+	$MKDIR -p "$ELV_STATE"
+	$TOUCH "$ELV_STATE/heartbeat"
 }
 
 # verified_act <gate> -- the positive booking of a tested medium (JB 26.08.):
@@ -24,16 +24,16 @@ heartbeat_act() {
 verified_act() {
 	local mnt l m
 	[ -n "$ELV_ESP" ] && [ -c "/dev/$ELV_ESP" ] || return 0
-	mnt=$(/usr/bin/mktemp -d) || return 0
-	if /sbin/mount -t msdosfs -o ro "/dev/$ELV_ESP" "$mnt" 2>/dev/null; then
-		l=$(/sbin/sha256 -q "$mnt/EFI/BOOT/BOOTX64.EFI" 2>/dev/null)
-		/sbin/umount "$mnt" 2>/dev/null
+	mnt=$($MKTEMP -d) || return 0
+	if $MOUNT -t msdosfs -o ro "/dev/$ELV_ESP" "$mnt" 2>/dev/null; then
+		l=$($SHA256 -q "$mnt/EFI/BOOT/BOOTX64.EFI" 2>/dev/null)
+		$UMOUNT "$mnt" 2>/dev/null
 	fi
-	/bin/rmdir "$mnt" 2>/dev/null
-	m=$(/sbin/sha256 -q /boot/manifest 2>/dev/null)
-	/bin/mkdir -p "$ELV_STATE"
-	printf 'loader=%s manifest=%s %s\n' "$l" "$m" "$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ELV_STATE/verified"
-	/bin/rm -f "$ELV_STATE/untested"
+	$RMDIR "$mnt" 2>/dev/null
+	m=$($SHA256 -q /boot/manifest 2>/dev/null)
+	$MKDIR -p "$ELV_STATE"
+	printf 'loader=%s manifest=%s %s\n' "$l" "$m" "$($DATE -u +%Y-%m-%dT%H:%M:%SZ)" > "$ELV_STATE/verified"
+	$RM -f "$ELV_STATE/untested"
 }
 
 # compare_media_act <gate> -- log the loader on the medium against the
@@ -61,23 +61,23 @@ sentinel_act() {
 # by courier/attest. Assumes disk space and gpg.
 fascist_log_act() {
 	local d
-	d="$ELV_STATE/forensic/$(/bin/date -u +%Y%m%dT%H%M%SZ)-$1"
-	/bin/mkdir -p "$d"
-	/bin/kenv > "$d/kenv" 2>/dev/null
-	/sbin/dmesg > "$d/dmesg" 2>/dev/null
-	/sbin/mount > "$d/mount" 2>/dev/null
-	/bin/ps auxww > "$d/ps" 2>/dev/null
-	/usr/bin/sockstat > "$d/sockstat" 2>/dev/null
-	/sbin/gpart show > "$d/gpart" 2>/dev/null
-	/usr/sbin/efivar -l > "$d/efivars" 2>/dev/null
-	(cd "$d" && /usr/bin/find . -type f | LC_ALL=C /usr/bin/sort | /usr/bin/xargs /sbin/sha256 -r) > "$d.sha256" 2>/dev/null
-	/usr/local/bin/gpg --batch --yes --clearsign "$d.sha256" > /dev/null 2>&1
-	/bin/chflags -R sappnd "$d" 2>/dev/null
+	d="$ELV_STATE/forensic/$($DATE -u +%Y%m%dT%H%M%SZ)-$1"
+	$MKDIR -p "$d"
+	$KENV > "$d/kenv" 2>/dev/null
+	$DMESG > "$d/dmesg" 2>/dev/null
+	$MOUNT > "$d/mount" 2>/dev/null
+	$PS auxww > "$d/ps" 2>/dev/null
+	$SOCKSTAT > "$d/sockstat" 2>/dev/null
+	$GPART show > "$d/gpart" 2>/dev/null
+	$EFIVAR -l > "$d/efivars" 2>/dev/null
+	(cd "$d" && $FIND . -type f | LC_ALL=C $SORT | $XARGS $SHA256 -r) > "$d.sha256" 2>/dev/null
+	$GPG --batch --yes --clearsign "$d.sha256" > /dev/null 2>&1
+	$CHFLAGS -R sappnd "$d" 2>/dev/null
 }
 
 # reprovision_act <gate> -- after a deliberate change: leave the note that
 # tells the owner (and elebake stage status) that the baselines are stale
 reprovision_act() {
-	/bin/mkdir -p "$ELV_STATE"
+	$MKDIR -p "$ELV_STATE"
 	elv_finding "$1" > "$ELV_STATE/reprovision"
 }
