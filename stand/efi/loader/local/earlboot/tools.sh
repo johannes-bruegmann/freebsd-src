@@ -16,48 +16,57 @@
 # JB 08.09.: refactor so the generated scripts can be tested without root
 # and without side effects.
 #
+# The "# test:" mark says what the test run puts in a tool's place:
+#   kenv     a function answering from the captured dump (key="value" lines)
+#   sysctl   from the dump too, keys "sysctl.<oid>"
+#   kldstat  present iff the dump has "kldstat.<module>=1"
+#   silent   returns nothing, exit 1 (the source is absent in the test)
+#   note     prints "mock: <args>" on stderr, exit 0 (side effects reported)
+#   tee      passes stdin through (console_act's tee | wall)
+#   (none)   pure text tools stay real
+#
 AWK=/usr/bin/awk
-CAMCONTROL=/sbin/camcontrol
+CAMCONTROL=/sbin/camcontrol # test:silent
 CAT=/bin/cat
-CHFLAGS=/bin/chflags
+CHFLAGS=/bin/chflags # test:note
 CP=/bin/cp
 CUT=/usr/bin/cut
 DATE=/bin/date
 DIRNAME=/usr/bin/dirname
-DMESG=/sbin/dmesg
-EFIVAR=/usr/sbin/efivar
+DMESG=/sbin/dmesg # test:silent
+EFIVAR=/usr/sbin/efivar # test:silent
 FIND=/usr/bin/find
-GPART=/sbin/gpart
-GPG=/usr/local/bin/gpg
+GPART=/sbin/gpart # test:silent
+GPG=/usr/local/bin/gpg # test:silent
 GREP=/usr/bin/grep
-HALT=/sbin/halt
+HALT=/sbin/halt # test:note
 HEAD=/usr/bin/head
 HOSTNAME=/bin/hostname
-KENV=/bin/kenv
-KLDSTAT=/sbin/kldstat
-LOGGER=/usr/bin/logger
+KENV=/bin/kenv # test:kenv
+KLDSTAT=/sbin/kldstat # test:kldstat
+LOGGER=/usr/bin/logger # test:note
 MKDIR=/bin/mkdir
 MKTEMP=/usr/bin/mktemp
-MOUNT=/sbin/mount
-NC=/usr/bin/nc
-NVMECONTROL=/sbin/nvmecontrol
+MOUNT=/sbin/mount # test:silent
+NC=/usr/bin/nc # test:silent
+NVMECONTROL=/sbin/nvmecontrol # test:silent
 OD=/usr/bin/od
 OPENSSL=/usr/bin/openssl
-PS=/bin/ps
+PS=/bin/ps # test:silent
 RM=/bin/rm
 RMDIR=/bin/rmdir
 SED=/usr/bin/sed
 SHA256=/sbin/sha256
-SHUTDOWN=/sbin/shutdown
+SHUTDOWN=/sbin/shutdown # test:note
 SLEEP=/bin/sleep
-SOCKSTAT=/usr/bin/sockstat
+SOCKSTAT=/usr/bin/sockstat # test:silent
 SORT=/usr/bin/sort
 STAT=/usr/bin/stat
-SYSCTL=/sbin/sysctl
+SYSCTL=/sbin/sysctl # test:sysctl
 TAIL=/usr/bin/tail
-TEE=/usr/bin/tee
+TEE=/usr/bin/tee # test:tee
 TOUCH=/usr/bin/touch
 TR=/usr/bin/tr
-UMOUNT=/sbin/umount
-WALL=/usr/bin/wall
+UMOUNT=/sbin/umount # test:silent
+WALL=/usr/bin/wall # test:note
 XARGS=/usr/bin/xargs
