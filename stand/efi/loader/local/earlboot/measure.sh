@@ -179,6 +179,15 @@ measure_answer_first() {
 	/bin/kenv -q "loader.trust.$1.answer.first" 2>/dev/null
 }
 
+# measure_answer_matched <gate> -- 1 iff an answer class of this run matched
+# (answer_matched_act fired), else 0. The catch-all class: bound AFTER the
+# word classes, its when_fail is "an answer was given, or none, and no word
+# we know" -- leer and wrong alike. Assumes the templates all carry
+# answer_matched_act.
+measure_answer_matched() {
+	printf '%s\n' "${ELV_ANSWER_MATCHED:-0}"
+}
+
 # --- diagnostics ---
 
 # diagnose_kenv -- the loader.trust.* publications as one line
