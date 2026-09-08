@@ -1,0 +1,21 @@
+# catalog.tbl -- where each kind of catalog entry lives, per container, and how
+# a name shows there. elebake reads this table when a policy is bound
+# (elebake policy resolves ...): one row per <container>.<kind>, columns
+#   key   file (relative to this directory)   grep pattern, %s = the name   hint...
+# Several rows with one key are alternatives (elvbootd inherits earlboot's
+# sh catalogs). A fourth container brings its own rows. Nothing here runs.
+loader.measure     measurement.h        struct[[:space:]]measurement[[:space:]]*%s(                          not in the loader catalog of this checkout
+loader.diagnose    measurement.h        void[[:space:]]*%s(                                                   not in the loader catalog of this checkout
+loader.when        policy.h             ^bool[[:space:]]*%s(                                                  not in the loader catalog of this checkout
+loader.action      action.h             extern[[:space:]]const[[:space:]]struct[[:space:]]action[[:space:]]*%s;   not in the loader catalog of this checkout
+earlboot.measure   earlboot/measure.sh  ^%s()                                                                 not in the earlboot catalog of this checkout
+earlboot.diagnose  earlboot/measure.sh  ^%s()                                                                 not in the earlboot catalog of this checkout
+earlboot.when      earlboot/policy.sh   ^%s()                                                                 not in the earlboot catalog of this checkout
+earlboot.action    earlboot/action.sh   ^%s()                                                                 not in the earlboot catalog of this checkout
+elvbootd.measure   elvbootd/measure.sh  ^%s()                                                                 not in the elvbootd catalog of this checkout
+elvbootd.measure   earlboot/measure.sh  ^%s()                                                                 not in the elvbootd catalog of this checkout (nor inherited from earlboot)
+elvbootd.diagnose  elvbootd/measure.sh  ^%s()                                                                 not in the elvbootd catalog of this checkout
+elvbootd.diagnose  earlboot/measure.sh  ^%s()                                                                 not in the elvbootd catalog of this checkout (nor inherited from earlboot)
+elvbootd.when      elvbootd/policy.sh   ^%s()                                                                 not in the elvbootd catalog of this checkout
+elvbootd.action    elvbootd/action.sh   ^%s()                                                                 not in the elvbootd catalog of this checkout
+elvbootd.action    earlboot/action.sh   ^%s()                                                                 not in the elvbootd catalog of this checkout (nor inherited from earlboot)
