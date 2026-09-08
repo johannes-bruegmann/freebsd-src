@@ -30,6 +30,9 @@ The catalogs (parsed by elebake from the headers here):
                   lockout/reveal/taint/expire/single/divert/nextboot/
                   handover, halt/panic/reboot/poweroff
   policy.h        the phases and the firing predicates (when_*)
+  catalog.tbl     where each kind of catalog entry lives per container and
+                  how a name shows there; elebake resolves policies
+                  against it (a fourth container brings its own rows)
   earlboot/tools.sh  the tools table: every external command the sh
                   catalogs run, one variable each ($KENV, $SYSCTL ...);
                   the emitter bakes it in as readonly constants, a test
