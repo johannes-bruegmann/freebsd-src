@@ -107,6 +107,41 @@ geli_ikm_digest(u_char out[32])
 	return (1);
 }
 
+/* Key files, registered for the next geli_probe() (see geliboot.h). */
+static struct {
+	u_char	*data;
+	size_t	 len;
+} keyfiles[GELI_KEYFILES_MAX];
+static unsigned int nkeyfiles;
+
+void
+geli_keyfile_add(const void *data, size_t len)
+{
+
+	if (nkeyfiles >= GELI_KEYFILES_MAX || len == 0 ||
+	    len > GELI_KEYFILE_MAX)
+		return;
+	if ((keyfiles[nkeyfiles].data = malloc(len)) == NULL)
+		return;
+	memcpy(keyfiles[nkeyfiles].data, data, len);
+	keyfiles[nkeyfiles].len = len;
+	nkeyfiles++;
+}
+
+void
+geli_keyfile_clear(void)
+{
+	unsigned int i;
+
+	for (i = 0; i < nkeyfiles; i++) {
+		explicit_bzero(keyfiles[i].data, keyfiles[i].len);
+		free(keyfiles[i].data);
+		keyfiles[i].data = NULL;
+		keyfiles[i].len = 0;
+	}
+	nkeyfiles = 0;
+}
+
 static int
 geli_findkey(struct geli_dev *gdev, u_char *mkey)
 {
@@ -229,11 +264,12 @@ out:
  * Attempt to decrypt the device.  This will try existing keys first, then will
  * prompt for a passphrase if there are no existing keys that work.
  */
-static int
+int
 geli_probe(struct geli_dev *gdev, const char *passphrase, u_char *mkeyp)
 {
 	u_char key[G_ELI_USERKEYLEN], mkey[G_ELI_DATAIVKEYLEN], *mkp;
 	u_int keynum;
+	unsigned int i;
 	struct hmac_ctx ctx;
 	int error;
 
@@ -248,11 +284,17 @@ geli_probe(struct geli_dev *gdev, const char *passphrase, u_char *mkeyp)
 	}
 
 	g_eli_crypto_hmac_init(&ctx, NULL, 0);
+	/* Key files first, then the passphrase part: the kernel's order. */
+	for (i = 0; i < nkeyfiles; i++)
+		g_eli_crypto_hmac_update(&ctx, keyfiles[i].data, keyfiles[i].len);
 	/*
 	 * Prepare Derived-Key from the user passphrase.
 	 */
 	if (gdev->md.md_iterations < 0) {
-		/* XXX TODO: Support loading key files. */
+		/* No passphrase: key files alone must do. */
+		if (nkeyfiles == 0)
+			return (1);
+	} else if (passphrase == NULL) {
 		return (1);
 	} else if (gdev->md.md_iterations == 0) {
 		g_eli_crypto_hmac_update(&ctx, gdev->md.md_salt,

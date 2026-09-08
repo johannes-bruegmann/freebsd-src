@@ -38,6 +38,7 @@ SRCS=	autoload.c \
 	evidence.c \
 	clock.c \
 	record.c \
+	geli_keys.c \
 	tpm.c \
 	nvme.c \
 	measure_time.c \

@@ -162,6 +162,9 @@ ikm_gather(void)
 
 	if (ikm_len > 0)
 		return (true);
+	/* The loader may never have opened the root: taste it now (geli_keys.c). */
+	if (record_salt[0] != '\0' && !geli_ikm_digest(ikm))
+		(void)geli_keys_prepare();
 	if (record_salt[0] == '\0' || !geli_ikm_digest(ikm))
 		return (false);
 	ikm_len = SHA256_DIGEST_LENGTH;
