@@ -23,6 +23,7 @@
 
 #include <stand.h>
 #include <string.h>
+#include <bootstrap.h>			/* local_prompt_lock */
 
 #include <efi.h>
 #include <efilib.h>			/* RS (reset), delay */
@@ -33,6 +34,7 @@
 #include "claim.h"
 #include "gate.h"
 #include "action.h"
+#include "policy.h"			/* phase_policies: the prompt lock */
 #include "evidence.h"
 #include "clock.h"
 #include "record.h"
@@ -503,6 +505,43 @@ action_unlock(const struct appraisal *a)
 		return;			/* unlocked -> loader prompt */
 	}
 	halt_boot("locked");
+}
+
+/*
+ * The loader prompt is an unlock site. interact() (interp.c) calls this
+ * before it reads its first line, on every path that leads there -- the
+ * menu's escape, a key during the autoboot, a loader without Lua, a failed
+ * boot device. The compiled-in secret of the first LOADER-phase gate that
+ * carries one (loaderlock) is asked once per boot, unless a gate's own
+ * unlock already satisfied it; three wrong answers halt. A build without
+ * such a secret is the upstream loader: it says so and opens.
+ */
+void
+local_prompt_lock(void)
+{
+	const struct policy *p;
+	struct appraisal a;
+	char name[64];
+
+	if (evidence()->unlocked > 0)
+		return;
+	for (p = phase_policies(PHASE_LOADER); p->gate != NULL; p++)
+		if (p->gate->secret != NULL)
+			break;
+	if (p->gate == NULL) {
+		printf("no recovery secret compiled in -- the prompt is open.\n");
+		return;
+	}
+	memset(&a, 0, sizeof(a));
+	a.gate = p->gate;
+	a.results = p->results;
+	a.verdict = VERDICT_FAIL;
+	printf("\n*** %s: the loader prompt ***\n", p->gate->name);
+	if (!passphrase_dialogue(&a, "recovery passphrase", p->gate->secret,
+	    p->gate->duress))
+		halt_boot("locked");
+	gate_var(p->gate, "unlocked", name, sizeof(name));
+	setenv(name, "1", 1);
 }
 
 /* Sleep 2^attempts seconds (capped at 64) before whatever comes next. */

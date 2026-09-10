@@ -121,6 +121,14 @@ interact(void)
 	/*
 	 * Not autobooting, go manual
 	 */
+#ifdef LOADER_VERIEXEC_ELEVATED
+	/*
+	 * The prompt is an unlock site (efi/loader/local/action.c): every path
+	 * here -- the menu's escape, a key during the autoboot, no Lua at all --
+	 * pays the compiled-in secret once per boot.
+	 */
+	local_prompt_lock();
+#endif
 	printf("\nType '?' for a list of commands, 'help' for more detailed help.\n");
 	if (getenv("prompt") == NULL)
 		setenv("prompt", "${interpret}", 1);
