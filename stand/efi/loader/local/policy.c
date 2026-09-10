@@ -28,25 +28,25 @@
 /* --- firing predicates (open catalog) --- */
 
 bool
-when_always(const struct appraisal *a __unused)
+when_always_fn(const struct appraisal *a __unused)
 {
 	return (true);
 }
 
 bool
-when_fail(const struct appraisal *a)
+when_fail_fn(const struct appraisal *a)
 {
 	return (a->verdict == VERDICT_FAIL);
 }
 
 bool
-when_pass(const struct appraisal *a)
+when_pass_fn(const struct appraisal *a)
 {
 	return (a->verdict == VERDICT_PASS);
 }
 
 bool
-when_skipped(const struct appraisal *a)
+when_skipped_fn(const struct appraisal *a)
 {
 	const struct claim *c;
 	const struct claim_result *r;
@@ -62,7 +62,7 @@ when_skipped(const struct appraisal *a)
  * the point is that an observer cannot time the spot check.
  */
 bool
-when_maybe(const struct appraisal *a __unused)
+when_maybe_fn(const struct appraisal *a __unused)
 {
 	static uint64_t s;
 
@@ -80,21 +80,48 @@ when_maybe(const struct appraisal *a __unused)
 }
 
 bool
-when_tainted(const struct appraisal *a __unused)
+when_tainted_fn(const struct appraisal *a __unused)
 {
 	return (evidence()->taint);
 }
 
 bool
-when_duress(const struct appraisal *a __unused)
+when_duress_fn(const struct appraisal *a __unused)
 {
 	return (evidence()->duress);
 }
 
 bool
-when_prompted(const struct appraisal *a __unused)
+when_prompted_fn(const struct appraisal *a __unused)
 {
 	return (evidence()->prompted > 0);
+}
+
+/* The leaves the policy tables name (policy.h). */
+WHEN_DEFINE(when_always);
+WHEN_DEFINE(when_fail);
+WHEN_DEFINE(when_pass);
+WHEN_DEFINE(when_skipped);
+WHEN_DEFINE(when_maybe);
+WHEN_DEFINE(when_tainted);
+WHEN_DEFINE(when_duress);
+WHEN_DEFINE(when_prompted);
+
+/* A when tree holds iff its leaves say so under AND, OR, NOT. */
+static bool
+when_holds(const struct when *w, const struct appraisal *a)
+{
+	switch (w->op) {
+	case WHEN_LEAF:
+		return (w->leaf(a));
+	case WHEN_AND:
+		return (when_holds(w->a, a) && when_holds(w->b, a));
+	case WHEN_OR:
+		return (when_holds(w->a, a) || when_holds(w->b, a));
+	case WHEN_NOT:
+		return (!when_holds(w->a, a));
+	}
+	return (false);
 }
 
 /* --- execution --- */
@@ -104,16 +131,20 @@ policy_run(enum phase ph, const struct policy *p, int argc, CHAR16 *argv[])
 {
 	struct appraisal a;
 	const struct binding *b;
+	const struct action *const *act;
 
 	a.gate = p->gate;
 	a.results = p->results;
 	a.verdict = gate_appraise(p->gate, argc, argv, p->results);
 	evidence_note_appraisal(ph, &a);
-	for (b = p->bindings; b->action != NULL; b++)
-		if (b->fires(&a)) {
-			evidence_note_action(b->action->name);
-			b->action->execute(&a);
+	for (b = p->bindings; b->when != NULL; b++) {
+		if (!when_holds(b->when, &a))
+			continue;
+		for (act = b->actions; *act != NULL; act++) {
+			evidence_note_action((*act)->name);
+			(*act)->execute(&a);
 		}
+	}
 }
 
 static uint8_t
