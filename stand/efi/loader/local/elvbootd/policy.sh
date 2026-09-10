@@ -13,11 +13,13 @@
 # watchdog is itself watched.
 #
 # Phases of this container (elebake reads this line):
-PHASES="STARTUP PERIODIC RESUME MEDIA"
+PHASES="STARTUP PERIODIC RESUME MEDIA SHUTDOWN"
 #   STARTUP   one-shot rc.d late in the boot (network is up): beacon, attest
 #   PERIODIC  periodic/security, daily: the media, the loader, the book
 #   RESUME    rc.resume, after every wake: the clock gap, the medium
 #   MEDIA     devd, when a removable medium appears ($1 = the cdev)
+#   SHUTDOWN  rc.d stop at shutdown: what the next boot must find in place
+#             (the boot marker), while the system can still put it there
 
 # --- firing predicates (identical to earlboot's; the runtime flags come
 # from the persisted appraisal of the last boot, read in the prologue) ---

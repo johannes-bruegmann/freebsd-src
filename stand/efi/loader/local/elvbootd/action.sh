@@ -75,6 +75,46 @@ fascist_log_act() {
 	$CHFLAGS -R sappnd "$d" 2>/dev/null
 }
 
+# marker_heal_act <gate> -- put the boot marker back into the load option
+# before the next boot: the value from $ELV_MARKER_FILE (0400 root, placed
+# by elebake stage marker install; never inside a hook), the same byte
+# surgery as elebake stage marker write (header, description and device
+# path kept, "RC <token>" NUL appended), the finding spooled. Bound in
+# SHUTDOWN behind a failed marker claim: the firmware shortens the entry
+# after a boot from another medium, the loader's BootMarker claim would
+# fall at the next boot -- the heal keeps the boot silent and the finding
+# visible; a tamper is still measured at boot, before any heal (JB 10.09.).
+# Assumes efivar(8) can write the variable (root, /dev/efi).
+marker_heal_act() {
+	local g v m t new size fplen desclen off
+	[ -n "$ELV_MARKER_VAR" ] && [ -r "$ELV_MARKER_FILE" ] || return 0
+	g=8be4df61-93ca-11d2-aa0d-00e098032b8c; v=$ELV_MARKER_VAR
+	m=$($HEAD -n1 "$ELV_MARKER_FILE")
+	[ -n "$m" ] || return 0
+	t=$($MKTEMP) || return 0
+	if ! $EFIVAR --no-name --name "$g-$v" --binary > "$t" 2>/dev/null; then
+		$RM -f "$t"; return 0
+	fi
+	size=$($WC -c < "$t" | $TR -d ' ')
+	fplen=$($OD -An -tu1 -j4 -N2 "$t" | $AWK '{print $1 + $2*256}')
+	desclen=$($OD -An -tu1 -j6 "$t" | $AWK '{for (i = 1; i <= NF; i++) v[n++] = $i} END {for (k = 0; k + 1 < n; k += 2) if (v[k] == 0 && v[k+1] == 0) {print k + 2; exit}}')
+	off=$((6 + ${desclen:-0} + ${fplen:-0}))
+	if [ -z "$fplen" ] || [ -z "$desclen" ] || [ "$off" -le 6 ] || [ "$off" -gt "$size" ]; then
+		$RM -f "$t"; return 0
+	fi
+	new=$($MKTEMP) || { $RM -f "$t"; return 0; }
+	$DD if="$t" of="$new" bs=1 count="$off" 2>/dev/null
+	printf 'RC %s' "$m" >> "$new"
+	$DD if=/dev/zero bs=1 count=1 2>/dev/null >> "$new"
+	if $EFIVAR --write --name "$g-$v" < "$new" 2>/dev/null; then
+		FAILED="$FAILED marker-healed"
+	else
+		FAILED="$FAILED marker-heal-failed"
+	fi
+	$RM -f "$t" "$new"
+	spool_act "$1"
+}
+
 # reprovision_act <gate> -- after a deliberate change: leave the note that
 # tells the owner (and elebake stage status) that the baselines are stale
 reprovision_act() {
