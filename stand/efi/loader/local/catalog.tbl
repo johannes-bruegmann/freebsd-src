@@ -6,7 +6,7 @@
 # sh catalogs). A fourth container brings its own rows. Nothing here runs.
 loader.measure     measurement.h        struct[[:space:]]measurement[[:space:]]*%s(                          not in the loader catalog of this checkout
 loader.diagnose    measurement.h        void[[:space:]]*%s(                                                   not in the loader catalog of this checkout
-loader.when        policy.h             ^WHEN_DECLARE(%s)                                                     not in the loader catalog of this checkout
+loader.when        policy.h             ^bool[[:space:]]*%s(                                                  not in the loader catalog of this checkout
 loader.action      action.h             extern[[:space:]]const[[:space:]]struct[[:space:]]action[[:space:]]*%s;   not in the loader catalog of this checkout
 earlboot.measure   earlboot/measure.sh  ^%s()                                                                 not in the earlboot catalog of this checkout
 earlboot.diagnose  earlboot/measure.sh  ^%s()                                                                 not in the earlboot catalog of this checkout

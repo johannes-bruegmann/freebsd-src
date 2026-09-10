@@ -72,29 +72,10 @@ enum phase {
  * The enum keeps each after-phase right behind its phase (post_of).
  */
 
-/*
- * A when is a tree: a leaf is one predicate of the catalog below, a node
- * composes two (AND, OR) or negates one (NOT). Leaves and nodes are all
- * lvalues of this type, so a policy table nests them by name:
- *
- *   FIRE(when_fail, &unlock_act)
- *   FIRE(AND(when_fail, NOT(when_skipped)), &unlock_act)
- *   FIRE(OR(when_duress, when_tainted), COMPOSE(&taint_act, &silence_act))
- *
- * A binding runs its actions, in order, iff its when holds. COMPOSE is
- * the visible name for "several actions": it adds nothing but intent.
- */
-enum when_op { WHEN_LEAF, WHEN_AND, WHEN_OR, WHEN_NOT };
-
-struct when {
-	enum when_op		 op;
-	bool			(*leaf)(const struct appraisal *);
-	const struct when	*a, *b;
-};
-
+/* A (predicate, action) pair: run the action iff the predicate fires. */
 struct binding {
-	const struct when		*when;		/* NULL ends a table */
-	const struct action *const	*actions;	/* NULL-terminated */
+	bool			(*fires)(const struct appraisal *);
+	const struct action	*action;
 };
 
 struct policy {
@@ -123,41 +104,20 @@ struct policy {
  *                 coercer sees nothing.
  *   when_prompted an interactive action ran in this or an earlier phase
  */
-#define	WHEN_DECLARE(name)						\
-	bool name##_fn(const struct appraisal *);			\
-	extern const struct when name
-#define	WHEN_DEFINE(name)						\
-	const struct when name = { .op = WHEN_LEAF, .leaf = name##_fn }
+bool	when_always(const struct appraisal *);
+bool	when_fail(const struct appraisal *);
+bool	when_pass(const struct appraisal *);
+bool	when_skipped(const struct appraisal *);
+bool	when_maybe(const struct appraisal *);
+bool	when_tainted(const struct appraisal *);
+bool	when_duress(const struct appraisal *);
+bool	when_prompted(const struct appraisal *);
 
-WHEN_DECLARE(when_always);
-WHEN_DECLARE(when_fail);
-WHEN_DECLARE(when_pass);
-WHEN_DECLARE(when_skipped);
-WHEN_DECLARE(when_maybe);
-WHEN_DECLARE(when_tainted);
-WHEN_DECLARE(when_duress);
-WHEN_DECLARE(when_prompted);
-
-/*
- * Composition. A node is a compound literal (static storage in a policy
- * table) dereferenced into an lvalue, so &(AND(...)) is as valid as
- * &(when_fail): the macros nest without a wrapper for the leaves.
- */
-#define	WHEN_NODE(op_, x, y)						\
-	(*(const struct when *)&(const struct when){			\
-	    .op = (op_), .a = &(x), .b = (y) })
-#define	AND(x, y)		WHEN_NODE(WHEN_AND, x, &(y))
-#define	OR(x, y)		WHEN_NODE(WHEN_OR, x, &(y))
-#define	NOT(x)			WHEN_NODE(WHEN_NOT, x, NULL)
-
-#define	FIRE(w, ...)							\
-	{ .when = &(w),							\
-	  .actions = (const struct action *const []){ __VA_ARGS__, NULL } }
-#define	COMPOSE(...)		__VA_ARGS__
+#define	FIRE(pred, act)		{ .fires = (pred), .action = (act) }
 #define	POLICY(id, ...)							\
 	{ .gate = &id##_gate, .results = id##_results,			\
 	  .bindings = (const struct binding[]){ __VA_ARGS__,		\
-	      { .when = NULL } } }
+	      { .action = NULL } } }
 #define	POLICY_END		{ .gate = NULL }
 
 /* A layer supplies its policies for a phase (POLICY_END-terminated). */
