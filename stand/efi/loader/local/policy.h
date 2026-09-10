@@ -72,7 +72,12 @@ enum phase {
  * The enum keeps each after-phase right behind its phase (post_of).
  */
 
-/* A (predicate, action) pair: run the action iff the predicate fires. */
+/*
+ * A (predicate, action) pair: run the action iff the predicate fires. Both
+ * slots hold a pointer; a composed when or a composed action (below) is a
+ * generated object of the same kind, so the runtime never sees the
+ * composition.
+ */
 struct binding {
 	bool			(*fires)(const struct appraisal *);
 	const struct action	*action;
@@ -113,12 +118,134 @@ bool	when_tainted(const struct appraisal *);
 bool	when_duress(const struct appraisal *);
 bool	when_prompted(const struct appraisal *);
 
-#define	FIRE(pred, act)		{ .fires = (pred), .action = (act) }
-#define	POLICY(id, ...)							\
-	{ .gate = &id##_gate, .results = id##_results,			\
-	  .bindings = (const struct binding[]){ __VA_ARGS__,		\
-	      { .action = NULL } } }
+/*
+ * The bindings of a policy are one POLICY_TABLE_DEFINE(name, binding1, ...):
+ * every binding a FIRE(when, action). A when is a catalog name, or a
+ * composition AND(x, y), OR(x, y), NOT(x) nested at will; an action is a
+ * catalog name (without &), or COMPOSE(a, b, ...) to run several in order.
+ *
+ * A composition is unbound -- no catalog object carries it -- and starts
+ * with a parenthesis, which is how the macros tell it from a name. The
+ * table is written twice from the same list: the first pass defines an
+ * object for every unbound slot (a static bool function for a when, a
+ * static struct action for an action), named by the table and the
+ * binding's position; the second pass writes the rows, referring to
+ * the generated objects by the same name. Nothing here runs: the runtime
+ * sees function and action pointers as it always did (JB 10.09.).
+ *
+ *   POLICY_TABLE_DEFINE(loaderlock_bindings,
+ *       FIRE(when_always, publish_act),
+ *       FIRE(AND(when_fail, NOT(when_skipped)), unlock_act),
+ *       FIRE(when_duress, COMPOSE(taint_act, silence_act)));
+ */
+#define	CAT_(x, y)		x ## y
+#define	CAT(x, y)		CAT_(x, y)
+#define	UNPAREN(...)		__VA_ARGS__
+#define	PROBE()			~, 1,
+#define	CHECK_N(x, n, ...)	n
+#define	CHECK(...)		CHECK_N(__VA_ARGS__, 0,)
+#define	IS_PAREN_P(...)		PROBE()
+#define	IS_PAREN(x)		CHECK(IS_PAREN_P x)	/* 1 iff x starts with ( */
+#define	IIF(c)			CAT(IIF_, c)
+#define	IIF_1(t, f)		t
+#define	IIF_0(t, f)		f
+#define	ARGC_(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, n, ...)	n
+#define	ARGC(...)		ARGC_(__VA_ARGS__, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+
+/* the when: a leaf is applied to the appraisal, a node is passed through */
+#define	W(x)			IIF(IS_PAREN(x))(x, x(a))
+#define	AND(x, y)		(W(x) && W(y))
+#define	OR(x, y)		(W(x) || W(y))
+#define	NOT(x)			(!W(x))
+#define	WHEN_NAME(n, i)		CAT(CAT(n, _when_), i)
+#define	WHEN_DEFINE(n, i, x)						\
+	static bool							\
+	WHEN_NAME(n, i)(const struct appraisal *a)			\
+	{								\
+		return x;						\
+	}
+#define	WHEN_REF(n, i, x)	IIF(IS_PAREN(x))(WHEN_NAME(n, i), x)
+
+/* the action: COMPOSE runs its members in order, each noted by name */
+#define	COMPOSE(...)		(__VA_ARGS__)
+#define	ACTION_NAME(n, i)	CAT(CAT(n, _action_), i)
+#define	RUN_1(x)		action_run(a, &x);
+#define	RUN_2(x, ...)		action_run(a, &x); RUN_1(__VA_ARGS__)
+#define	RUN_3(x, ...)		action_run(a, &x); RUN_2(__VA_ARGS__)
+#define	RUN_4(x, ...)		action_run(a, &x); RUN_3(__VA_ARGS__)
+#define	RUN_5(x, ...)		action_run(a, &x); RUN_4(__VA_ARGS__)
+#define	RUN_6(x, ...)		action_run(a, &x); RUN_5(__VA_ARGS__)
+#define	RUN_7(x, ...)		action_run(a, &x); RUN_6(__VA_ARGS__)
+#define	RUN_8(x, ...)		action_run(a, &x); RUN_7(__VA_ARGS__)
+#define	RUN(...)		CAT(RUN_, ARGC(__VA_ARGS__))(__VA_ARGS__)
+#define	COMPOSED_ACTION_DEFINE(n, i, x)					\
+	static void							\
+	CAT(ACTION_NAME(n, i), _execute)(const struct appraisal *a)	\
+	{								\
+		RUN x							\
+	}								\
+	static const struct action ACTION_NAME(n, i) =			\
+	    { .name = "composed", .execute = CAT(ACTION_NAME(n, i), _execute) };
+#define	ACTION_REF(n, i, x)	IIF(IS_PAREN(x))(&ACTION_NAME(n, i), &x)
+
+/* a binding, and the two passes over the list */
+#define	FIRE(w, x)		(w, x)
+#define	DEF_(n, i, w, x)	IIF(IS_PAREN(w))(WHEN_DEFINE(n, i, w), )	\
+				IIF(IS_PAREN(x))(COMPOSED_ACTION_DEFINE(n, i, x), )
+#define	DEF_X(...)		DEF_(__VA_ARGS__)
+#define	DEF(n, i, b)		DEF_X(n, i, UNPAREN b)
+#define	ROW_(n, i, w, x)	{ .fires = WHEN_REF(n, i, w), .action = ACTION_REF(n, i, x) },
+#define	ROW_X(...)		ROW_(__VA_ARGS__)
+#define	ROW(n, i, b)		ROW_X(n, i, UNPAREN b)
+#define	DEFS_1(n, b)		DEF(n, 1, b)
+#define	DEFS_2(n, b, ...)	DEF(n, 2, b) DEFS_1(n, __VA_ARGS__)
+#define	DEFS_3(n, b, ...)	DEF(n, 3, b) DEFS_2(n, __VA_ARGS__)
+#define	DEFS_4(n, b, ...)	DEF(n, 4, b) DEFS_3(n, __VA_ARGS__)
+#define	DEFS_5(n, b, ...)	DEF(n, 5, b) DEFS_4(n, __VA_ARGS__)
+#define	DEFS_6(n, b, ...)	DEF(n, 6, b) DEFS_5(n, __VA_ARGS__)
+#define	DEFS_7(n, b, ...)	DEF(n, 7, b) DEFS_6(n, __VA_ARGS__)
+#define	DEFS_8(n, b, ...)	DEF(n, 8, b) DEFS_7(n, __VA_ARGS__)
+#define	DEFS_9(n, b, ...)	DEF(n, 9, b) DEFS_8(n, __VA_ARGS__)
+#define	DEFS_10(n, b, ...)	DEF(n, 10, b) DEFS_9(n, __VA_ARGS__)
+#define	DEFS_11(n, b, ...)	DEF(n, 11, b) DEFS_10(n, __VA_ARGS__)
+#define	DEFS_12(n, b, ...)	DEF(n, 12, b) DEFS_11(n, __VA_ARGS__)
+#define	DEFS_13(n, b, ...)	DEF(n, 13, b) DEFS_12(n, __VA_ARGS__)
+#define	DEFS_14(n, b, ...)	DEF(n, 14, b) DEFS_13(n, __VA_ARGS__)
+#define	DEFS_15(n, b, ...)	DEF(n, 15, b) DEFS_14(n, __VA_ARGS__)
+#define	DEFS_16(n, b, ...)	DEF(n, 16, b) DEFS_15(n, __VA_ARGS__)
+#define	ROWS_1(n, b)		ROW(n, 1, b)
+#define	ROWS_2(n, b, ...)	ROW(n, 2, b) ROWS_1(n, __VA_ARGS__)
+#define	ROWS_3(n, b, ...)	ROW(n, 3, b) ROWS_2(n, __VA_ARGS__)
+#define	ROWS_4(n, b, ...)	ROW(n, 4, b) ROWS_3(n, __VA_ARGS__)
+#define	ROWS_5(n, b, ...)	ROW(n, 5, b) ROWS_4(n, __VA_ARGS__)
+#define	ROWS_6(n, b, ...)	ROW(n, 6, b) ROWS_5(n, __VA_ARGS__)
+#define	ROWS_7(n, b, ...)	ROW(n, 7, b) ROWS_6(n, __VA_ARGS__)
+#define	ROWS_8(n, b, ...)	ROW(n, 8, b) ROWS_7(n, __VA_ARGS__)
+#define	ROWS_9(n, b, ...)	ROW(n, 9, b) ROWS_8(n, __VA_ARGS__)
+#define	ROWS_10(n, b, ...)	ROW(n, 10, b) ROWS_9(n, __VA_ARGS__)
+#define	ROWS_11(n, b, ...)	ROW(n, 11, b) ROWS_10(n, __VA_ARGS__)
+#define	ROWS_12(n, b, ...)	ROW(n, 12, b) ROWS_11(n, __VA_ARGS__)
+#define	ROWS_13(n, b, ...)	ROW(n, 13, b) ROWS_12(n, __VA_ARGS__)
+#define	ROWS_14(n, b, ...)	ROW(n, 14, b) ROWS_13(n, __VA_ARGS__)
+#define	ROWS_15(n, b, ...)	ROW(n, 15, b) ROWS_14(n, __VA_ARGS__)
+#define	ROWS_16(n, b, ...)	ROW(n, 16, b) ROWS_15(n, __VA_ARGS__)
+#define	DEFS(n, ...)		CAT(DEFS_, ARGC(__VA_ARGS__))(n, __VA_ARGS__)
+#define	ROWS(n, ...)		CAT(ROWS_, ARGC(__VA_ARGS__))(n, __VA_ARGS__)
+
+#define	POLICY_TABLE_DEFINE(name, binding1, ...)			\
+	DEFS(name, binding1, ##__VA_ARGS__)				\
+	static const struct binding name[] = {				\
+		ROWS(name, binding1, ##__VA_ARGS__)			\
+		{ .action = NULL }					\
+	}
+
+/* a phase table names its policies: the gate and the bindings */
+#define	POLICY(id, tbl)							\
+	{ .gate = &id##_gate, .results = id##_results, .bindings = (tbl) }
 #define	POLICY_END		{ .gate = NULL }
+
+/* run one action of a binding: noted in the ledger by its name, then executed */
+void	action_run(const struct appraisal *, const struct action *);
 
 /* A layer supplies its policies for a phase (POLICY_END-terminated). */
 const struct policy	*phase_policies(enum phase);
