@@ -10,6 +10,19 @@
 # measure_smart_step, measure_heartbeat); these are the runtime-only ones.
 # Every provider states what it assumes.
 
+# measure_marker_digest <BootXXXX> -- sha256 of the marker token in the
+# load option's optional data ("RC <token>": what elebake stage marker
+# write put there and the loader's BootMarker claim recognises by the same
+# digest); absent when the entry carries no token -- the firmware shortens
+# the entry after a boot from another medium. Assumes efivar(8) can read
+# the variable (root).
+measure_marker_digest() {
+	local t
+	t=$($EFIVAR --no-name --name "8be4df61-93ca-11d2-aa0d-00e098032b8c-$1" --binary 2>/dev/null | LC_ALL=C $TR -d '\000' | LC_ALL=C $GREP -o 'RC [0-9a-f]\{32\}' | $HEAD -n1 | $CUT -c4-)
+	[ -n "$t" ] || return 0
+	printf '%s' "$t" | $SHA256 -q 2>/dev/null
+}
+
 # measure_geom <disk> -- sha256 of the disk's partition table as gpart
 # reports it (gpart backup), the runtime twin of the loader's GPT digest.
 # Assumes gpart(8) can read the disk.
