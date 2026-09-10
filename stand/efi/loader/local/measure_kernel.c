@@ -122,7 +122,38 @@ measure_kenv_guard(int argc __unused, CHAR16 *argv[] __unused)
 
 /* --- preloaded files against the manifest --- */
 
-static unsigned int preload_total, preload_bad;
+/*
+ * Provenance of the blobs the loader makes itself. file_addbuf() (module.c)
+ * notes every buffer it turns into a preloaded "file": efi_rng_seed, the
+ * platform entropy (main.c), and TSLOG, the timestamp log (boot.c). They
+ * have no path and different contents every boot, so no manifest can name
+ * them; what CAN be verified is that this loader made them. An entry that
+ * is neither a manifest-verified file nor noted here is unverified -- and
+ * so is everything past the table's capacity (the safe direction).
+ */
+#define	ADDBUF_MAX	8
+static const struct preloaded_file *addbuf_made[ADDBUF_MAX];
+static unsigned int addbuf_n;
+
+void
+local_note_addbuf(struct preloaded_file *fp)
+{
+	if (addbuf_n < ADDBUF_MAX)
+		addbuf_made[addbuf_n++] = fp;
+}
+
+static bool
+addbuf_made_here(const struct preloaded_file *fp)
+{
+	unsigned int i;
+
+	for (i = 0; i < addbuf_n; i++)
+		if (addbuf_made[i] == fp)
+			return (true);
+	return (false);
+}
+
+static unsigned int preload_total, preload_made, preload_bad;
 static char preload_list[192];
 
 static void
@@ -133,17 +164,14 @@ preload_walk(void)
 	int fd, rc;
 #endif
 
-	preload_total = preload_bad = 0;
+	preload_total = preload_made = preload_bad = 0;
 	preload_list[0] = '\0';
 	for (fp = preloaded_files; fp != NULL; fp = fp->f_next) {
-		/*
-		 * The loader's own blobs (efi_rng_seed, TSLOG, ...) are preloaded
-		 * without a path: nothing on any medium, nothing a manifest could
-		 * name. Files are what the manifest covers.
-		 */
-		if (fp->f_name == NULL || strchr(fp->f_name, '/') == NULL)
-			continue;
 		preload_total++;
+		if (addbuf_made_here(fp)) {
+			preload_made++;
+			continue;
+		}
 #ifdef LOADER_VERIEXEC
 		fd = open(fp->f_name, O_RDONLY);
 		if (fd >= 0) {
@@ -179,9 +207,9 @@ void
 diagnose_preload(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 {
 	d->leaf = "preload";
-	snprintf(d->text, sizeof(d->text), "total=%u,unverified=%u%s%s",
-	    preload_total, preload_bad, preload_bad > 0 ? ":" : "",
-	    preload_bad > 0 ? preload_list : "");
+	snprintf(d->text, sizeof(d->text), "total=%u,made=%u,unverified=%u%s%s",
+	    preload_total, preload_made, preload_bad,
+	    preload_bad > 0 ? ":" : "", preload_bad > 0 ? preload_list : "");
 }
 
 /* --- the soft PCR --- */

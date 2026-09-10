@@ -278,6 +278,12 @@ int file_addmodule(struct preloaded_file *, char *, int,
     struct kernel_module **);
 void file_removemetadata(struct preloaded_file *fp);
 int file_addbuf(const char *name, const char *type, size_t len, void *buf);
+#ifdef LOADER_VERIEXEC_ELEVATED
+/* local platform-trust gates (efi/loader/local): provenance of the blobs
+ * file_addbuf() makes, and the lock on the interactive prompt */
+void local_note_addbuf(struct preloaded_file *fp);
+void local_prompt_lock(void);
+#endif
 int tslog_init(void);
 int tslog_publish(void);
 
