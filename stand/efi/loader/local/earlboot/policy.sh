@@ -69,6 +69,10 @@ elv_prologue() {
 
 # --- firing predicates ---
 
+# Composition: a trigger record may combine these -- and(a,b), or(a,b),
+# not(a) -- and name several actions, compose(a,b). The emitter renders the
+# combination as { a && b; }, { a || b; }, ! a, and the actions in order;
+# nothing here needs to know.
 # when_always -- every time
 when_always() { return 0; }
 # when_fail -- the gate's overall verdict is fail
