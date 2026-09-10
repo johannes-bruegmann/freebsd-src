@@ -50,15 +50,27 @@
 enum phase {
 	PHASE_BOOT,		/* platform layer: before the boot medium is engaged
 				   (main.c, before currdev). Hosts: bootlock. */
+	PHASE_BOOT_POST,
 	PHASE_LOADER,		/* before the interactive loader (interact()); we are
 				   already in the loader binary. Hosts: loaderlock,
 				   strictwatch. */
+	PHASE_LOADER_POST,
 	PHASE_KERNEL,		/* before the kernel is entered (elf64_exec, before
 				   dev_cleanup/ExitBootServices): the interactive
 				   window is closed, the final howto/kenv are known,
 				   every earlier appraisal is in the ledger. Hosts:
 				   kernellock. */
+	PHASE_KERNEL_POST,
 };
+
+/*
+ * Every phase has an after-phase, PHASE_<x>_POST, that local_run() runs
+ * once the actions of PHASE_<x> are done: its claims measure what those
+ * actions produced -- the prompt's attempts and dwell, the ledger, the
+ * duress tell -- which the phase itself cannot see (it measures before it
+ * acts). PHASE_KERNEL_POST is the last thing before the record is committed.
+ * The enum keeps each after-phase right behind its phase (post_of).
+ */
 
 /* A (predicate, action) pair: run the action iff the predicate fires. */
 struct binding {
