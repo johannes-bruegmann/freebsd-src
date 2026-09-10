@@ -55,7 +55,14 @@ evidence_note_appraisal(unsigned int phase, const struct appraisal *a)
 		else if (r->verdict == VERDICT_SKIP)
 			e->skipped++;
 	}
-	if (a->verdict == VERDICT_FAIL) {
+	/*
+	 * The verdict stays FAIL when nothing was checked (gate.c: silence is
+	 * not trust, when_fail fires, an unlock is asked), but the ledger counts
+	 * and taints only a gate that saw a claim FAIL: a gate whose every claim
+	 * was skipped -- the answer classes on a boot without a prompt -- is
+	 * unmeasured, not broken, and the book says "skipped", not "failed".
+	 */
+	if (a->verdict == VERDICT_FAIL && e->failed > 0) {
 		E.failed_gates++;
 		E.taint = true;
 	}
