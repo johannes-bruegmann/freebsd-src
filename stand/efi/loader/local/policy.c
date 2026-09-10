@@ -131,16 +131,26 @@ record_flags(void)
 	return (f);
 }
 
+/* The after-phase of a phase (policy.h): the enum keeps it right behind. */
+static enum phase
+post_of(enum phase ph)
+{
+	return ((enum phase)(ph + 1));
+}
+
 void
 local_run(enum phase ph, int argc, CHAR16 *argv[])
 {
 	const struct policy *p;
+	enum phase post = post_of(ph);
 
 	evidence_args(argc, argv);
 	if (ph == PHASE_KERNEL)
 		(void)record_load();	/* keys exist once the passphrase was typed */
 	for (p = phase_policies(ph); p->gate != NULL; p++)
 		policy_run(ph, p, argc, argv);
+	for (p = phase_policies(post); p->gate != NULL; p++)
+		policy_run(post, p, argc, argv);
 	if (ph == PHASE_KERNEL)
 		(void)record_commit(record_flags());
 }
