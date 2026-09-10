@@ -99,6 +99,13 @@ when_prompted(const struct appraisal *a __unused)
 
 /* --- execution --- */
 
+void
+action_run(const struct appraisal *a, const struct action *act)
+{
+	evidence_note_action(act->name);
+	act->execute(a);
+}
+
 static void
 policy_run(enum phase ph, const struct policy *p, int argc, CHAR16 *argv[])
 {
@@ -110,10 +117,8 @@ policy_run(enum phase ph, const struct policy *p, int argc, CHAR16 *argv[])
 	a.verdict = gate_appraise(p->gate, argc, argv, p->results);
 	evidence_note_appraisal(ph, &a);
 	for (b = p->bindings; b->action != NULL; b++)
-		if (b->fires(&a)) {
-			evidence_note_action(b->action->name);
-			b->action->execute(&a);
-		}
+		if (b->fires(&a))
+			action_run(&a, b->action);
 }
 
 static uint8_t
