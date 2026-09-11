@@ -25,6 +25,7 @@
 #include <sys/param.h>
 #include <part.h>
 #include <string.h>
+#include <stdarg.h>
 #include <bootstrap.h>
 
 #include "geliboot.h"
@@ -41,15 +42,33 @@ struct taste_ctx {
 	bool		 found;
 	bool		 tasted;	/* a GELI partition was seen */
 	bool		 badkey;	/* ... and did not open */
+	unsigned int	 parts;		/* partitions seen on this disk */
+	unsigned int	 gelis;		/* ... with GELI metadata */
 };
 
-/* Why the last geli_keys_prepare() ended as it did (diagnose_record). */
-static const char *keys_reason = "not tried";
+/* Why the last geli_keys_prepare() ended as it did (diagnose_record):
+ * the verdict, then what was seen -- disk by disk, partitions and GELI
+ * partitions among them -- so a silent miss can be read after the boot. */
+static char keys_reason[160] = "not tried";
+static char keys_seen[96];
 
 const char *
 geli_keys_reason(void)
 {
 	return (keys_reason);
+}
+
+static void
+keys_note(const char *fmt, ...)
+{
+	va_list ap;
+	size_t n = strlen(keys_seen);
+
+	if (n >= sizeof(keys_seen) - 1)
+		return;
+	va_start(ap, fmt);
+	vsnprintf(keys_seen + n, sizeof(keys_seen) - n, fmt, ap);
+	va_end(ap);
 }
 
 /* diskread_t for ptable: blocks of secsz from the whole disk */
@@ -86,6 +105,7 @@ keys_partition(void *arg, const char *partname __unused,
 
 	if (c->found)
 		return (1);
+	c->parts++;
 	pc = *c;
 	pc.base = part->start * c->secsz;
 	lastsector = ((part->end - part->start + 1) * c->secsz) / DEV_BSIZE - 1;
@@ -94,6 +114,7 @@ keys_partition(void *arg, const char *partname __unused,
 	if (gdev == NULL)
 		return (0);
 	c->tasted = true;
+	c->gelis++;
 	if (geli_probe(gdev, c->passphrase, NULL) == 0) {
 		c->found = true;
 		return (1);
@@ -138,9 +159,11 @@ geli_keys_prepare(void)
 	int unit;
 
 	memset(&c, 0, sizeof(c));
+	keys_seen[0] = '\0';
 	c.passphrase = getenv("kern.geom.eli.passphrase");
 	if (c.passphrase == NULL) {
-		keys_reason = "no cached GELI passphrase (kern.geom.eli.passphrase)";
+		snprintf(keys_reason, sizeof(keys_reason),
+		    "no cached GELI passphrase (kern.geom.eli.passphrase)");
 		return (0);
 	}
 	keys_register_keyfiles();
@@ -150,6 +173,7 @@ geli_keys_prepare(void)
 		if (c.fd < 0)
 			continue;
 		c.unit = unit;
+		c.parts = c.gelis = 0;
 		if (ioctl(c.fd, DIOCGSECTORSIZE, &c.secsz) == 0 &&
 		    ioctl(c.fd, DIOCGMEDIASIZE, &mediasz) == 0 &&
 		    c.secsz > 0) {
@@ -158,14 +182,21 @@ geli_keys_prepare(void)
 			if (table != NULL) {
 				ptable_iterate(table, &c, keys_partition);
 				ptable_close(table);
-			}
-		}
+				keys_note("%sdisk%d:%u/%u", unit ? "," : "",
+				    unit, c.gelis, c.parts);
+			} else
+				keys_note("%sdisk%d:notable", unit ? "," : "",
+				    unit);
+		} else
+			keys_note("%sdisk%d:noioctl", unit ? "," : "", unit);
 		close(c.fd);
 	}
 	geli_keyfile_clear();
-	keys_reason = c.found ? "GELI user key derived" :
+	snprintf(keys_reason, sizeof(keys_reason), "%s [%s]",
+	    c.found ? "GELI user key derived" :
 	    c.badkey ? "GELI partition seen, passphrase and key files did not open it" :
 	    c.tasted ? "GELI partition seen, no key" :
-	    "no GELI partition on disk0..disk7";
+	    "no GELI partition seen",
+	    keys_seen[0] != '\0' ? keys_seen : "no disk opened");
 	return (c.found ? 1 : 0);
 }
