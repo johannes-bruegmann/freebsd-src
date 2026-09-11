@@ -94,6 +94,14 @@ evidence_note_unlock(void)
 	E.unlocked++;
 }
 
+/* The console lock opened: booked apart from a gate's unlock (LedgerUnlocked
+ * expects 0 on a boot nobody rescued; a typed console secret is not that). */
+void
+evidence_note_console(void)
+{
+	E.console++;
+}
+
 void
 evidence_note_attempt(void)
 {
