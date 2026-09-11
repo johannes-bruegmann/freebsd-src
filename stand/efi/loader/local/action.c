@@ -23,7 +23,7 @@
 
 #include <stand.h>
 #include <string.h>
-#include <bootstrap.h>			/* local_prompt_lock */
+#include <bootstrap.h>			/* local_console_lock */
 
 #include <efi.h>
 #include <efilib.h>			/* RS (reset), delay */
@@ -508,40 +508,57 @@ action_unlock(const struct appraisal *a)
 }
 
 /*
- * The loader prompt is an unlock site. interact() (interp.c) calls this
- * before it reads its first line, on every path that leads there -- the
- * menu's escape, a key during the autoboot, a loader without Lua, a failed
- * boot device. The compiled-in secret of the first LOADER-phase gate that
- * carries one (loaderlock) is asked, ALWAYS: a gate's own unlock earlier
- * in this boot lets the boot go on, it does not open the prompt (11.09.:
- * a recovery unlock had opened it, and a recovery boot is exactly the boot
- * that reaches the prompt). Three wrong answers halt. A build without such
- * a secret is the upstream loader: it says so and opens.
+ * The console is a lock. console.c getchar() calls local_console_lock()
+ * before it hands out a key, so EVERY interactive path of the loader --
+ * the key that interrupts the autoboot, Lua's menu and its password
+ * prompts, the OK prompt with or without Lua, the pager, the GELI
+ * passphrase of a provider the loader opens -- costs the compiled-in
+ * secret of the first LOADER-phase gate that carries one (loaderlock),
+ * once per boot, always: a gate's own unlock earlier in this boot lets the
+ * boot go on, it does not open the console (11.09.: a recovery unlock had
+ * opened the prompt, and a recovery boot is exactly the boot that reaches
+ * it). The gates' own dialogs are the trusted readers: local_run() marks
+ * the phases trusted, their secrets are asked by the gates themselves.
+ * Three wrong answers halt; a build without a compiled-in secret halts at
+ * the first key as well -- the console never opens on its own. A boot
+ * nobody touches never reads a key and never sees this.
  */
+static int console_trusted;	/* > 0 while a trust gate reads */
+static int console_unlocked;	/* the secret was typed this boot */
+
 void
-local_prompt_lock(void)
+local_console_trusted(int on)
+{
+	console_trusted += on > 0 ? 1 : -1;
+}
+
+void
+local_console_lock(void)
 {
 	const struct policy *p;
 	struct appraisal a;
 	char name[64];
 
+	if (console_unlocked || console_trusted > 0)
+		return;
+	console_trusted++;		/* the dialog below reads for itself */
 	for (p = phase_policies(PHASE_LOADER); p->gate != NULL; p++)
 		if (p->gate->secret != NULL)
 			break;
-	if (p->gate == NULL) {
-		printf("no recovery secret compiled in -- the prompt is open.\n");
-		return;
-	}
+	if (p->gate == NULL)
+		halt_boot("locked: no console secret compiled in");
 	memset(&a, 0, sizeof(a));
 	a.gate = p->gate;
 	a.results = p->results;
 	a.verdict = VERDICT_FAIL;
-	printf("\n*** %s: the loader prompt ***\n", p->gate->name);
+	printf("\n*** %s: the console ***\n", p->gate->name);
 	if (!passphrase_dialogue(&a, "recovery passphrase", p->gate->secret,
 	    p->gate->duress))
 		halt_boot("locked");
 	gate_var(p->gate, "unlocked", name, sizeof(name));
 	setenv(name, "1", 1);
+	console_unlocked = 1;
+	console_trusted--;
 }
 
 /* Sleep 2^attempts seconds (capped at 64) before whatever comes next. */

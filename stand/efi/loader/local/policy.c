@@ -15,6 +15,7 @@
  */
 
 #include <stand.h>
+#include <bootstrap.h>			/* local_console_trusted */
 
 #include <efi.h>			/* CHAR16 */
 
@@ -150,6 +151,7 @@ local_run(enum phase ph, int argc, CHAR16 *argv[])
 	enum phase post = post_of(ph);
 
 	evidence_args(argc, argv);
+	local_console_trusted(1);	/* the gates' dialogs are their own locks */
 	if (ph == PHASE_KERNEL)
 		(void)record_load();	/* keys exist once the passphrase was typed */
 	for (p = phase_policies(ph); p->gate != NULL; p++)
@@ -158,6 +160,7 @@ local_run(enum phase ph, int argc, CHAR16 *argv[])
 		policy_run(post, p, argc, argv);
 	if (ph == PHASE_KERNEL)
 		(void)record_commit(record_flags());
+	local_console_trusted(-1);
 }
 
 void

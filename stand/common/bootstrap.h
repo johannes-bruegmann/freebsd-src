@@ -280,9 +280,12 @@ void file_removemetadata(struct preloaded_file *fp);
 int file_addbuf(const char *name, const char *type, size_t len, void *buf);
 #ifdef LOADER_VERIEXEC_ELEVATED
 /* local platform-trust gates (efi/loader/local): provenance of the blobs
- * file_addbuf() makes, and the lock on the interactive prompt */
+ * file_addbuf() makes, and the lock on the console -- every keystroke the
+ * loader reads passes local_console_lock() (console.c getchar); the gates'
+ * own dialogs read as trusted (local_console_trusted) */
 void local_note_addbuf(struct preloaded_file *fp);
-void local_prompt_lock(void);
+void local_console_lock(void);
+void local_console_trusted(int on);
 #endif
 int tslog_init(void);
 int tslog_publish(void);

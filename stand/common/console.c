@@ -158,6 +158,15 @@ getchar(void)
 	int	cons;
 	int	rv;
 
+#ifdef LOADER_VERIEXEC_ELEVATED
+	/*
+	 * The console is a lock (efi/loader/local/action.c): the first key
+	 * anyone but the trust gates wants to read -- the autoboot interrupt,
+	 * Lua's menu and prompts, the OK prompt -- costs the compiled-in
+	 * secret once per boot. A boot nobody touches never comes here.
+	 */
+	local_console_lock();
+#endif
 	/* Loop forever polling all active consoles */
 	for (;;) {
 		for (cons = 0; consoles[cons] != NULL; cons++) {
