@@ -512,9 +512,11 @@ action_unlock(const struct appraisal *a)
  * before it reads its first line, on every path that leads there -- the
  * menu's escape, a key during the autoboot, a loader without Lua, a failed
  * boot device. The compiled-in secret of the first LOADER-phase gate that
- * carries one (loaderlock) is asked once per boot, unless a gate's own
- * unlock already satisfied it; three wrong answers halt. A build without
- * such a secret is the upstream loader: it says so and opens.
+ * carries one (loaderlock) is asked, ALWAYS: a gate's own unlock earlier
+ * in this boot lets the boot go on, it does not open the prompt (11.09.:
+ * a recovery unlock had opened it, and a recovery boot is exactly the boot
+ * that reaches the prompt). Three wrong answers halt. A build without such
+ * a secret is the upstream loader: it says so and opens.
  */
 void
 local_prompt_lock(void)
@@ -523,8 +525,6 @@ local_prompt_lock(void)
 	struct appraisal a;
 	char name[64];
 
-	if (evidence()->unlocked > 0)
-		return;
 	for (p = phase_policies(PHASE_LOADER); p->gate != NULL; p++)
 		if (p->gate->secret != NULL)
 			break;
