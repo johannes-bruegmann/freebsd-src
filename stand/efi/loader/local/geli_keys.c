@@ -12,7 +12,9 @@
  * configuration already asked for (kern.geom.eli.passphrase, set by the
  * Lua prompt of geom_eli_passphrase_prompt) and the key files loader.conf
  * preloaded (<prov>:geli_keyfile<n>) -- exactly the material the kernel
- * would use -- and stops at the first key. No prompt ever comes from here:
+ * would use -- and stops at the first key. The taste is its own
+ * (keys_taste): the providers the kernel attaches at boot, not only those
+ * the loader may attach. No prompt ever comes from here:
  * without a cached passphrase nothing is tasted and the record stays
  * absent, reported. The derived key travels to the kernel in the keybuf
  * like any loader key, so the kernel skips its own PBKDF2: the seconds
@@ -29,6 +31,7 @@
 #include <bootstrap.h>
 
 #include "geliboot.h"
+#include "geliboot_internal.h"	/* struct geli_dev: tasted here, not by libsa */
 #include "record.h"
 
 #define	KEYS_DISKS	8		/* disk0 .. disk7 */
@@ -95,6 +98,56 @@ keys_partread(void *vdev __unused, void *priv, off_t off, void *buf,
 	return (read(c->fd, buf, bytes) == (ssize_t)bytes ? 0 : EIO);
 }
 
+/*
+ * The partition's GELI metadata, decoded from its last sector, as a device
+ * geli_probe() can derive the key for. libsa's geli_taste() keeps only the
+ * providers the loader itself may attach (geli init -g, GELIBOOT): the root
+ * the kernel attaches at boot (geli init -b, BOOT) with key files and the
+ * passphrase -- on illyria with AUTH, which the loader cannot read -- fell
+ * through it and the record stayed absent (11.09.). The key derives the same
+ * way for both; only that is done here, no attach, no read. Swap (ONETIME)
+ * has no user key and is skipped. NULL if this is no such provider.
+ */
+static struct geli_dev *
+keys_taste(struct taste_ctx *c, daddr_t lastsector, char *name)
+{
+	struct g_eli_metadata md;
+	struct geli_dev *gdev;
+	u_char *buf;
+	off_t at;
+	int error;
+
+	if ((buf = malloc(DEV_GELIBOOT_BSIZE)) == NULL)
+		return (NULL);
+	at = rounddown2(lastsector * DEV_BSIZE, DEV_GELIBOOT_BSIZE);
+	if (at + DEV_GELIBOOT_BSIZE > (lastsector + 1) * DEV_BSIZE)
+		at = (lastsector + 1) * DEV_BSIZE - DEV_GELIBOOT_BSIZE;
+	error = keys_partread(NULL, c, at, buf, DEV_GELIBOOT_BSIZE);
+	if (error == 0) {
+		error = eli_metadata_decode(buf, &md);
+		if (error != 0)
+			error = eli_metadata_decode(buf +
+			    (DEV_GELIBOOT_BSIZE - DEV_BSIZE), &md);
+	}
+	explicit_bzero(buf, DEV_GELIBOOT_BSIZE);
+	free(buf);
+	if (error != 0)
+		return (NULL);
+	if ((md.md_flags & G_ELI_FLAG_ONETIME) != 0 ||
+	    (md.md_flags & (G_ELI_FLAG_BOOT | G_ELI_FLAG_GELIBOOT)) == 0)
+		return (NULL);
+	if ((gdev = calloc(1, sizeof(*gdev))) == NULL)
+		return (NULL);
+	gdev->part_end = lastsector;
+	gdev->keybuf_slot = -1;
+	gdev->md = md;
+	gdev->name = name;
+	eli_metadata_softc(&gdev->sc, &md, DEV_BSIZE,
+	    (lastsector + 1) * DEV_BSIZE);
+	explicit_bzero(&md, sizeof(md));
+	return (gdev);
+}
+
 static int
 keys_partition(void *arg, const char *partname __unused,
     const struct ptable_entry *part)
@@ -102,6 +155,7 @@ keys_partition(void *arg, const char *partname __unused,
 	struct taste_ctx *c = arg, pc;
 	struct geli_dev *gdev;
 	daddr_t lastsector;
+	char name[16];
 
 	if (c->found)
 		return (1);
@@ -109,18 +163,20 @@ keys_partition(void *arg, const char *partname __unused,
 	pc = *c;
 	pc.base = part->start * c->secsz;
 	lastsector = ((part->end - part->start + 1) * c->secsz) / DEV_BSIZE - 1;
-	gdev = geli_taste(keys_partread, &pc, lastsector, "disk%dp%d",
-	    c->unit, part->index);
+	snprintf(name, sizeof(name), "disk%dp%d:", c->unit, part->index);
+	gdev = keys_taste(&pc, lastsector, name);
 	if (gdev == NULL)
 		return (0);
 	c->tasted = true;
 	c->gelis++;
-	if (geli_probe(gdev, c->passphrase, NULL) == 0) {
+	/* The key it derives lands in libsa's keychain; the device is done. */
+	if (geli_probe(gdev, c->passphrase, NULL) == 0)
 		c->found = true;
-		return (1);
-	}
-	c->badkey = true;
-	return (0);
+	else
+		c->badkey = true;
+	explicit_bzero(gdev, sizeof(*gdev));
+	free(gdev);
+	return (c->found ? 1 : 0);
 }
 
 /* The preloaded key files, <prov>:geli_keyfile<n>, into libsa's registry. */
