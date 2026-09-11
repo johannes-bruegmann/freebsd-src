@@ -14,12 +14,19 @@
  * preloaded (<prov>:geli_keyfile<n>) -- exactly the material the kernel
  * would use -- and stops at the first key. The taste is its own
  * (keys_taste): the providers the kernel attaches at boot, not only those
- * the loader may attach. No prompt ever comes from here:
- * without a cached passphrase nothing is tasted and the record stays
- * absent, reported. The derived key travels to the kernel in the keybuf
- * like any loader key, so the kernel skips its own PBKDF2: the seconds
- * spent here are not spent twice. Whole disks are opened, never
- * partitions, so devopen's own taste-and-prompt path is not entered.
+ * the loader may attach. So is the derivation (keys_derive): the kernel
+ * feeds a provider its own key files, <prov>:geli_keyfile<n>, and nothing
+ * else; the loader cannot tell disk0p1 from nda0p1, so it tries each
+ * provider's set in turn, then the passphrase alone, with the PBKDF2 part
+ * computed once. Feeding every preloaded key file to every partition, as
+ * the first version did, is a wrong key (11.09.: "Bad GELI key" twice per
+ * attempt, and the record called the taste on every claim -- now once per
+ * boot). No prompt ever comes from here: without a cached passphrase
+ * nothing is tasted and the record stays absent, reported. The derived key
+ * travels to the kernel in the keybuf like any loader key, so the kernel
+ * skips its own PBKDF2: the seconds spent here are not spent twice. Whole
+ * disks are opened, never partitions, so devopen's own taste-and-prompt
+ * path is not entered.
  */
 
 #include <stand.h>
@@ -30,8 +37,9 @@
 #include <stdarg.h>
 #include <bootstrap.h>
 
+#include <geom/eli/pkcs5v2.h>
+
 #include "geliboot.h"
-#include "geliboot_internal.h"	/* struct geli_dev: tasted here, not by libsa */
 #include "record.h"
 
 #define	KEYS_DISKS	8		/* disk0 .. disk7 */
@@ -99,53 +107,158 @@ keys_partread(void *vdev __unused, void *priv, off_t off, void *buf,
 }
 
 /*
- * The partition's GELI metadata, decoded from its last sector, as a device
- * geli_probe() can derive the key for. libsa's geli_taste() keeps only the
+ * The partition's GELI metadata, decoded from its last sector, iff it is a
+ * provider whose key is worth deriving. libsa's geli_taste() keeps only the
  * providers the loader itself may attach (geli init -g, GELIBOOT): the root
  * the kernel attaches at boot (geli init -b, BOOT) with key files and the
  * passphrase -- on illyria with AUTH, which the loader cannot read -- fell
- * through it and the record stayed absent (11.09.). The key derives the same
- * way for both; only that is done here, no attach, no read. Swap (ONETIME)
- * has no user key and is skipped. NULL if this is no such provider.
+ * through it and the record stayed absent (11.09.). Nothing is attached or
+ * read here. Swap (ONETIME) has no user key and is skipped.
  */
-static struct geli_dev *
-keys_taste(struct taste_ctx *c, daddr_t lastsector, char *name)
+static bool
+keys_taste(struct taste_ctx *c, daddr_t lastsector, struct g_eli_metadata *md)
 {
-	struct g_eli_metadata md;
-	struct geli_dev *gdev;
 	u_char *buf;
 	off_t at;
 	int error;
 
 	if ((buf = malloc(DEV_GELIBOOT_BSIZE)) == NULL)
-		return (NULL);
+		return (false);
 	at = rounddown2(lastsector * DEV_BSIZE, DEV_GELIBOOT_BSIZE);
 	if (at + DEV_GELIBOOT_BSIZE > (lastsector + 1) * DEV_BSIZE)
 		at = (lastsector + 1) * DEV_BSIZE - DEV_GELIBOOT_BSIZE;
 	error = keys_partread(NULL, c, at, buf, DEV_GELIBOOT_BSIZE);
 	if (error == 0) {
-		error = eli_metadata_decode(buf, &md);
+		error = eli_metadata_decode(buf, md);
 		if (error != 0)
 			error = eli_metadata_decode(buf +
-			    (DEV_GELIBOOT_BSIZE - DEV_BSIZE), &md);
+			    (DEV_GELIBOOT_BSIZE - DEV_BSIZE), md);
 	}
 	explicit_bzero(buf, DEV_GELIBOOT_BSIZE);
 	free(buf);
 	if (error != 0)
-		return (NULL);
-	if ((md.md_flags & G_ELI_FLAG_ONETIME) != 0 ||
-	    (md.md_flags & (G_ELI_FLAG_BOOT | G_ELI_FLAG_GELIBOOT)) == 0)
-		return (NULL);
-	if ((gdev = calloc(1, sizeof(*gdev))) == NULL)
-		return (NULL);
-	gdev->part_end = lastsector;
-	gdev->keybuf_slot = -1;
-	gdev->md = md;
-	gdev->name = name;
-	eli_metadata_softc(&gdev->sc, &md, DEV_BSIZE,
-	    (lastsector + 1) * DEV_BSIZE);
-	explicit_bzero(&md, sizeof(md));
-	return (gdev);
+		return (false);
+	if ((md->md_flags & G_ELI_FLAG_ONETIME) != 0 ||
+	    (md->md_flags & (G_ELI_FLAG_BOOT | G_ELI_FLAG_GELIBOOT)) == 0) {
+		explicit_bzero(md, sizeof(*md));
+		return (false);
+	}
+	return (true);
+}
+
+/* The providers loader.conf preloaded key files for: the <prov> of <prov>:geli_keyfile<n>. */
+#define	KEYS_PROVIDERS	8
+#define	KEYS_PROVLEN	32
+
+static unsigned int
+keys_providers(char provs[KEYS_PROVIDERS][KEYS_PROVLEN])
+{
+	struct preloaded_file *fp;
+	const char *colon;
+	size_t n;
+	unsigned int k = 0, i;
+
+	for (fp = preloaded_files; fp != NULL; fp = fp->f_next) {
+		if (fp->f_type == NULL ||
+		    (colon = strstr(fp->f_type, ":geli_keyfile")) == NULL)
+			continue;
+		n = colon - fp->f_type;
+		if (n == 0 || n >= KEYS_PROVLEN)
+			continue;
+		for (i = 0; i < k; i++)
+			if (strncmp(provs[i], fp->f_type, n) == 0 &&
+			    provs[i][n] == '\0')
+				break;
+		if (i < k)
+			continue;
+		if (k == KEYS_PROVIDERS)
+			break;
+		memcpy(provs[k], fp->f_type, n);
+		provs[k][n] = '\0';
+		k++;
+	}
+	return (k);
+}
+
+/* One provider's key files into the HMAC, in the kernel's order and naming
+ * (<prov>:geli_keyfile<i>, a lone file also <prov>:geli_keyfile); their count. */
+static int
+keys_hmac_keyfiles(struct hmac_ctx *ctx, const char *prov)
+{
+	struct preloaded_file *fp;
+	char type[KEYS_PROVLEN + 24];
+	void *buf;
+	unsigned int i;
+
+	for (i = 0; ; i++) {
+		snprintf(type, sizeof(type), "%s:geli_keyfile%u", prov, i);
+		fp = file_findfile(NULL, type);
+		if (fp == NULL && i == 0) {
+			snprintf(type, sizeof(type), "%s:geli_keyfile", prov);
+			fp = file_findfile(NULL, type);
+		}
+		if (fp == NULL)
+			return (i);
+		if (fp->f_size == 0 || (buf = malloc(fp->f_size)) == NULL)
+			return (-1);
+		archsw.arch_copyout(fp->f_addr, buf, fp->f_size);
+		g_eli_crypto_hmac_update(ctx, buf, fp->f_size);
+		explicit_bzero(buf, fp->f_size);
+		free(buf);
+	}
+}
+
+/*
+ * The user key of one provider, the kernel's way (g_eli_taste): HMAC over
+ * that provider's key files, then the passphrase part -- PBKDF2 with the
+ * metadata's iterations, computed once here and reused for every key file
+ * set tried -- and the master key must decrypt with it. The sets are tried
+ * in turn, the passphrase alone last. true iff the key is in the keychain.
+ */
+static bool
+keys_derive(const struct g_eli_metadata *md, const char *passphrase,
+    const char *name)
+{
+	char provs[KEYS_PROVIDERS][KEYS_PROVLEN];
+	u_char dkey[G_ELI_USERKEYLEN], key[G_ELI_USERKEYLEN];
+	u_char mkey[G_ELI_DATAIVKEYLEN];
+	struct hmac_ctx ctx;
+	u_int keynum;
+	unsigned int np, g;
+	bool ok = false;
+
+	np = keys_providers(provs);
+	if (md->md_iterations > 0) {
+		printf("platform trust: deriving the key of %s (%d iterations)...\n",
+		    name, md->md_iterations);
+		pkcs5v2_genkey(dkey, sizeof(dkey), md->md_salt,
+		    sizeof(md->md_salt), passphrase, md->md_iterations);
+	}
+	for (g = 0; g <= np && !ok; g++) {
+		g_eli_crypto_hmac_init(&ctx, NULL, 0);
+		if (g < np) {
+			if (keys_hmac_keyfiles(&ctx, provs[g]) <= 0)
+				continue;
+		} else if (md->md_iterations < 0)
+			break;		/* key files only, and no set fit */
+		if (md->md_iterations == 0) {
+			g_eli_crypto_hmac_update(&ctx, md->md_salt,
+			    sizeof(md->md_salt));
+			g_eli_crypto_hmac_update(&ctx,
+			    (const uint8_t *)passphrase, strlen(passphrase));
+		} else if (md->md_iterations > 0)
+			g_eli_crypto_hmac_update(&ctx, dkey, sizeof(dkey));
+		g_eli_crypto_hmac_final(&ctx, key, 0);
+		if (g_eli_mkey_decrypt_any(md, key, mkey, &keynum) == 0) {
+			geli_add_key(key);
+			ok = true;
+		}
+	}
+	explicit_bzero(dkey, sizeof(dkey));
+	explicit_bzero(key, sizeof(key));
+	explicit_bzero(mkey, sizeof(mkey));
+	explicit_bzero(&ctx, sizeof(ctx));
+	return (ok);
 }
 
 static int
@@ -153,7 +266,7 @@ keys_partition(void *arg, const char *partname __unused,
     const struct ptable_entry *part)
 {
 	struct taste_ctx *c = arg, pc;
-	struct geli_dev *gdev;
+	struct g_eli_metadata md;
 	daddr_t lastsector;
 	char name[16];
 
@@ -163,57 +276,37 @@ keys_partition(void *arg, const char *partname __unused,
 	pc = *c;
 	pc.base = part->start * c->secsz;
 	lastsector = ((part->end - part->start + 1) * c->secsz) / DEV_BSIZE - 1;
-	snprintf(name, sizeof(name), "disk%dp%d:", c->unit, part->index);
-	gdev = keys_taste(&pc, lastsector, name);
-	if (gdev == NULL)
+	if (!keys_taste(&pc, lastsector, &md))
 		return (0);
 	c->tasted = true;
 	c->gelis++;
-	/* The key it derives lands in libsa's keychain; the device is done. */
-	if (geli_probe(gdev, c->passphrase, NULL) == 0)
+	snprintf(name, sizeof(name), "disk%dp%d", c->unit, part->index);
+	if (keys_derive(&md, c->passphrase, name))
 		c->found = true;
 	else
 		c->badkey = true;
-	explicit_bzero(gdev, sizeof(*gdev));
-	free(gdev);
+	explicit_bzero(&md, sizeof(md));
 	return (c->found ? 1 : 0);
-}
-
-/* The preloaded key files, <prov>:geli_keyfile<n>, into libsa's registry. */
-static void
-keys_register_keyfiles(void)
-{
-	struct preloaded_file *fp;
-	void *buf;
-
-	for (fp = preloaded_files; fp != NULL; fp = fp->f_next) {
-		if (fp->f_type == NULL ||
-		    strstr(fp->f_type, ":geli_keyfile") == NULL)
-			continue;
-		if (fp->f_size == 0 || fp->f_size > GELI_KEYFILE_MAX)
-			continue;
-		if ((buf = malloc(fp->f_size)) == NULL)
-			continue;
-		archsw.arch_copyout(fp->f_addr, buf, fp->f_size);
-		geli_keyfile_add(buf, fp->f_size);
-		explicit_bzero(buf, fp->f_size);
-		free(buf);
-	}
 }
 
 /*
  * Derive and save the user key of the first GELI partition the cached
  * passphrase and the preloaded key files open. 1 iff a key is saved now.
+ * One attempt per boot once a passphrase is there: every record claim
+ * asks, the disks and the PBKDF2 cost are paid once (11.09.).
  */
 int
 geli_keys_prepare(void)
 {
+	static bool tried;
 	struct taste_ctx c;
 	struct ptable *table;
 	uint64_t mediasz;
 	char devname[16];
 	int unit;
 
+	if (tried)
+		return (0);
 	memset(&c, 0, sizeof(c));
 	keys_seen[0] = '\0';
 	c.passphrase = getenv("kern.geom.eli.passphrase");
@@ -222,7 +315,7 @@ geli_keys_prepare(void)
 		    "no cached GELI passphrase (kern.geom.eli.passphrase)");
 		return (0);
 	}
-	keys_register_keyfiles();
+	tried = true;
 	for (unit = 0; unit < KEYS_DISKS && !c.found; unit++) {
 		snprintf(devname, sizeof(devname), "disk%d:", unit);
 		c.fd = open(devname, O_RDONLY);
@@ -247,7 +340,6 @@ geli_keys_prepare(void)
 			keys_note("%sdisk%d:noioctl", unit ? "," : "", unit);
 		close(c.fd);
 	}
-	geli_keyfile_clear();
 	snprintf(keys_reason, sizeof(keys_reason), "%s [%s]",
 	    c.found ? "GELI user key derived" :
 	    c.badkey ? "GELI partition seen, passphrase and key files did not open it" :
