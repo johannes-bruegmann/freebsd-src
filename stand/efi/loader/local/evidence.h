@@ -44,7 +44,8 @@ struct evidence {
 	unsigned int		 ngates;
 	unsigned int		 failed_gates;	/* verdict FAIL, all phases */
 	unsigned int		 prompted;	/* interactive actions fired */
-	unsigned int		 unlocked;	/* successful unlocks */
+	unsigned int		 unlocked;	/* successful unlocks of a GATE */
+	unsigned int		 console;	/* the console lock opened (action.c) */
 	unsigned int		 attempts;	/* passphrase entries, all prompts */
 	uint64_t		 prompt_ms;	/* summed dwell at prompts */
 	uint64_t		 cadence_ms;	/* longest pause between two keys */
@@ -62,6 +63,7 @@ void	evidence_args(int argc, CHAR16 *argv[]);
 void	evidence_note_appraisal(unsigned int phase, const struct appraisal *);
 void	evidence_note_action(const char *name);	/* counts the interactive ones */
 void	evidence_note_unlock(void);
+void	evidence_note_console(void);
 void	evidence_note_attempt(void);
 void	evidence_note_prompt(uint64_t dwell_ms, uint64_t cadence_ms);
 void	evidence_set_duress(void);

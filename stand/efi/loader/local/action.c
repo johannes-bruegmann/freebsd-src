@@ -181,7 +181,7 @@ list_by_verdict(const struct appraisal *a, enum verdict want, char *buf, size_t 
  */
 static bool
 passphrase_dialogue(const struct appraisal *a, const char *label,
-    const char *want, const char *duress)
+    const char *want, const char *duress, bool gate)
 {
 	char got[128], hash[2 * SHA256_DIGEST_LENGTH + 1];
 	int tries;
@@ -193,12 +193,18 @@ passphrase_dialogue(const struct appraisal *a, const char *label,
 		sha256_hex(got, strlen(got), hash);
 		explicit_bzero(got, sizeof(got));
 		if (strcmp(hash, want) == 0) {
-			evidence_note_unlock();
+			if (gate)
+				evidence_note_unlock();
+			else
+				evidence_note_console();
 			return (true);
 		}
 		if (duress != NULL && strcmp(hash, duress) == 0) {
 			evidence_set_duress();
-			evidence_note_unlock();
+			if (gate)
+				evidence_note_unlock();
+			else
+				evidence_note_console();
 			return (true);
 		}
 		printf("wrong.\n");
@@ -468,7 +474,7 @@ action_lock(const struct appraisal *a)
 
 	if (want == NULL)
 		return;				/* no secret -> nothing to lock */
-	if (!passphrase_dialogue(a, "secret", want, kenv(a, "duress")))
+	if (!passphrase_dialogue(a, "secret", want, kenv(a, "duress"), true))
 		halt_boot("locked");
 }
 
@@ -494,7 +500,7 @@ action_unlock(const struct appraisal *a)
 		return;
 	}
 	if (passphrase_dialogue(a, "recovery passphrase", a->gate->secret,
-	    a->gate->duress)) {
+	    a->gate->duress, true)) {
 		/*
 		 * Handshake: tell the Lua path this gate is already
 		 * satisfied, so it does not ask for the same passphrase
@@ -553,7 +559,7 @@ local_console_lock(void)
 	a.verdict = VERDICT_FAIL;
 	printf("\n*** %s: the console ***\n", p->gate->name);
 	if (!passphrase_dialogue(&a, "recovery passphrase", p->gate->secret,
-	    p->gate->duress))
+	    p->gate->duress, false))
 		halt_boot("locked");
 	gate_var(p->gate, "unlocked", name, sizeof(name));
 	setenv(name, "1", 1);

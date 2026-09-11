@@ -271,6 +271,8 @@ struct measurement	measure_attempts(int argc, CHAR16 *argv[]);
  *                       kernel/module update and every prompt-side load.
  * measure_ledger_failed   number of gates that FAILED in earlier phases
  * measure_ledger_prompted number of interactive actions that ran so far
+ *                         (the console lock's own dialog counts under
+ *                         'console' in the ledger diagnosis, not here)
  * measure_ledger_unlocked number of unlocks so far
  */
 struct measurement	measure_howto(int argc, CHAR16 *argv[]);
