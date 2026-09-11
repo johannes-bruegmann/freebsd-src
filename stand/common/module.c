@@ -1044,7 +1044,7 @@ file_addbuf(const char *name, const char *type, size_t len, void *buf)
 
 	/* Add to the list of loaded files */
 	file_insert_tail(fp);
-#ifdef LOADER_VERIEXEC_ELEVATED
+#ifdef LOADER_VERIEXEC
 	local_note_addbuf(fp);		/* made here, not read from a medium */
 #endif
 	return(0);

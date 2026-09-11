@@ -158,7 +158,7 @@ getchar(void)
 	int	cons;
 	int	rv;
 
-#ifdef LOADER_VERIEXEC_ELEVATED
+#ifdef LOADER_VERIEXEC
 	/*
 	 * The console is a lock (efi/loader/local/action.c): the first key
 	 * anyone but the trust gates wants to read -- the autoboot interrupt,
