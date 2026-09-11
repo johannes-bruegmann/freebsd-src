@@ -75,6 +75,20 @@ fascist_log_act() {
 	$CHFLAGS -R sappnd "$d" 2>/dev/null
 }
 
+# inventory_record_act <gate> -- the loader's inventory lists (kenv
+# loader.trust.list.*: one entry per ACPI table and per non-volatile EFI
+# variable, each with its own digest) into $ELV_STATE/inventory/<boot time>,
+# so boots can be compared and the entries the firmware rewrites can be
+# named before a claim's scope is decided (JB 11.09.: record first, decide
+# after). Assumes a loader of this fork published the lists.
+inventory_record_act() {
+	local t
+	t=$($KENV -q loader.trust.kernellock.time.now 2>/dev/null | $SED 's/,.*//; s/[-:]//g')
+	[ -n "$t" ] || t=$($DATE +%Y%m%dT%H%M%S)
+	$MKDIR -p "$ELV_STATE/inventory"
+	$KENV | $GREP '^loader\.trust\.list\.' > "$ELV_STATE/inventory/$t"
+}
+
 # marker_heal_act <gate> -- put the boot marker back into the load option
 # before the next boot: the value from $ELV_MARKER_FILE (0400 root, placed
 # by elebake stage marker install; never inside a hook), the same byte

@@ -91,6 +91,68 @@ diagnose_images(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 	snprintf(d->text, sizeof(d->text), "%u", images_n);
 }
 
+/*
+ * --- the lists behind a digest ---
+ *
+ * A digest that falls says nothing about which table or variable moved.
+ * For learning what the firmware rewrites per boot (JB 11.09.: record
+ * first, decide the claim's scope after), the measurements below also
+ * publish one entry per item, comma-joined into kenv variables
+ * loader.trust.list.<what>.<n> of at most LIST_CHUNK characters -- the
+ * kernel drops any loader string longer than KENV_MNAMELEN+KENV_MVALLEN.
+ * elvbootd's inventory_record_act files them per boot.
+ */
+#define	LIST_CHUNK	200
+
+struct kenv_list {
+	const char	*what;
+	unsigned int	 seq;
+	size_t		 len;
+	char		 buf[LIST_CHUNK + 1];
+};
+
+static void
+list_flush(struct kenv_list *l)
+{
+	char name[48];
+
+	if (l->len == 0)
+		return;
+	snprintf(name, sizeof(name), "loader.trust.list.%s.%u", l->what,
+	    l->seq++);
+	setenv(name, l->buf, 1);
+	l->len = 0;
+	l->buf[0] = '\0';
+}
+
+static void
+list_add(struct kenv_list *l, const char *entry)
+{
+	size_t n = strlen(entry);
+
+	if (n > LIST_CHUNK)
+		return;
+	if (l->len + (l->len ? 1 : 0) + n > LIST_CHUNK)
+		list_flush(l);
+	if (l->len)
+		l->buf[l->len++] = ',';
+	memcpy(l->buf + l->len, entry, n + 1);
+	l->len += n;
+}
+
+/* 8 hex digits of a SHA256 over the bytes: enough to tell boots apart. */
+static void
+digest8(const void *p, size_t n, char out[9])
+{
+	SHA256_CTX ctx;
+	uint8_t d[SHA256_DIGEST_LENGTH];
+
+	SHA256_Init(&ctx);
+	SHA256_Update(&ctx, p, n);
+	SHA256_Final(d, &ctx);
+	snprintf(out, 9, "%02x%02x%02x%02x", d[0], d[1], d[2], d[3]);
+}
+
 /* --- ACPI tables --- */
 
 static EFI_GUID acpi20_guid = ACPI_20_TABLE_GUID;
@@ -109,34 +171,43 @@ rd64(const uint8_t *p)
 	return ((uint64_t)rd32(p) | (uint64_t)rd32(p + 4) << 32);
 }
 
-/* Hash one table: its header and body as the Length field says. */
+/* Hash one table: its header and body as the Length field says; list it. */
 static void
-acpi_table_update(SHA256_CTX *ctx, uint64_t phys)
+acpi_table_update(SHA256_CTX *ctx, uint64_t phys, struct kenv_list *l)
 {
 	const uint8_t *t = (const uint8_t *)(uintptr_t)phys;
 	uint32_t len;
+	char entry[32], d8[9];
 
 	if (t == NULL)
 		return;
+	len = rd32(t + 4);
 	/*
 	 * Tables the firmware rewrites every boot are not the platform's
 	 * identity: FPDT carries the last boot's timings, BGRT the boot
 	 * logo's address and status, BERT the last error record. Hashing
-	 * them made AcpiTables fall on the very next boot (11.09.).
+	 * them made AcpiTables fall on the very next boot (11.09.). They
+	 * are listed with "-" for the digest: seen, not counted.
 	 */
 	if (memcmp(t, "FPDT", 4) == 0 || memcmp(t, "BGRT", 4) == 0 ||
-	    memcmp(t, "BERT", 4) == 0)
+	    memcmp(t, "BERT", 4) == 0) {
+		snprintf(entry, sizeof(entry), "%.4s:%u:-", t, len);
+		list_add(l, entry);
 		return;
-	len = rd32(t + 4);
+	}
 	if (len < 36 || len > 16 * 1024 * 1024)
 		return;
 	SHA256_Update(ctx, t, len);
+	digest8(t, len, d8);
+	snprintf(entry, sizeof(entry), "%.4s:%u:%s", t, len, d8);
+	list_add(l, entry);
 }
 
 struct measurement
 measure_acpi(int argc __unused, CHAR16 *argv[] __unused)
 {
 	struct measurement m = { .name = "AcpiTables", .type = MEAS_SHA256 };
+	struct kenv_list l = { .what = "acpi" };
 	const uint8_t *rsdp, *xsdt, *rsdt;
 	SHA256_CTX ctx;
 	uint32_t len, i, n;
@@ -157,7 +228,7 @@ measure_acpi(int argc __unused, CHAR16 *argv[] __unused)
 		SHA256_Update(&ctx, xsdt, 36);
 		n = (len - 36) / 8;
 		for (i = 0; i < n; i++)
-			acpi_table_update(&ctx, rd64(xsdt + 36 + 8 * i));
+			acpi_table_update(&ctx, rd64(xsdt + 36 + 8 * i), &l);
 	} else {
 		rsdt = (const uint8_t *)(uintptr_t)rd32(rsdp + 16);
 		if (rsdt == NULL)
@@ -168,8 +239,9 @@ measure_acpi(int argc __unused, CHAR16 *argv[] __unused)
 		SHA256_Update(&ctx, rsdt, 36);
 		n = (len - 36) / 4;
 		for (i = 0; i < n; i++)
-			acpi_table_update(&ctx, rd32(rsdt + 36 + 4 * i));
+			acpi_table_update(&ctx, rd32(rsdt + 36 + 4 * i), &l);
 	}
+	list_flush(&l);
 	SHA256_Final(m.value.digest, &ctx);
 	m.present = true;
 	return (m);
@@ -185,6 +257,8 @@ struct measurement
 measure_efivars(int argc __unused, CHAR16 *argv[] __unused)
 {
 	struct measurement m = { .name = "EfiVariables", .type = MEAS_SHA256 };
+	struct kenv_list l = { .what = "efivars" };
+	char entry[96], ascii[41], d8[9];
 	CHAR16 *name;
 	EFI_GUID guid;
 	UINTN nsz, dsz, cap = 1024;
@@ -233,17 +307,28 @@ measure_efivars(int argc __unused, CHAR16 *argv[] __unused)
 		if (!EFI_ERROR(RS->GetVariable(name, &guid, &attrs, &dsz, data))) {
 			UINTN i;
 
-			for (i = 0; name[i] != 0; i++)
-				;
+			for (i = 0; name[i] != 0; i++) {
+				if (i < sizeof(ascii) - 1)
+					ascii[i] = (name[i] >= 0x20 &&
+					    name[i] < 0x7f) ? (char)name[i] : '?';
+			}
+			ascii[i < sizeof(ascii) - 1 ? i : sizeof(ascii) - 1] = '\0';
 			SHA256_Update(&ctx, name, i * sizeof(CHAR16));
 			SHA256_Update(&ctx, &guid, sizeof(guid));
 			SHA256_Update(&ctx, &attrs, sizeof(attrs));
 			SHA256_Update(&ctx, data, dsz);
 			n++;
+			/* <guid's first word>/<name>:<attrs>:<size>:<digest> */
+			digest8(data, dsz, d8);
+			snprintf(entry, sizeof(entry), "%08x/%s:%x:%u:%s",
+			    (unsigned int)guid.Data1, ascii, (unsigned int)attrs,
+			    (unsigned int)dsz, d8);
+			list_add(&l, entry);
 		}
 		free(data);
 	}
 	free(name);
+	list_flush(&l);
 	if (n == 0)
 		return (m);
 	SHA256_Final(m.value.digest, &ctx);
