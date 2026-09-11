@@ -150,6 +150,15 @@ answer_wanted(void)
 	return (v != NULL && (strcmp(v, "YES") == 0 || strcmp(v, "yes") == 0));
 }
 
+/* Why there is no keying material yet: read by diagnose_record. */
+static const char *reason = "not tried";
+
+const char *
+record_reason(void)
+{
+	return (reason);
+}
+
 /*
  * Gather the material: GELI's digest, then -- once, and only when GELI
  * already unlocked, so never before the passphrase -- the boot answer.
@@ -162,11 +171,18 @@ ikm_gather(void)
 
 	if (ikm_len > 0)
 		return (true);
-	/* The loader may never have opened the root: taste it now (geli_keys.c). */
-	if (record_salt[0] != '\0' && !geli_ikm_digest(ikm))
-		(void)geli_keys_prepare();
-	if (record_salt[0] == '\0' || !geli_ikm_digest(ikm))
+	if (record_salt[0] == '\0') {
+		reason = "no record salt compiled in (LOADER_TRUST_RECORD_SALT)";
 		return (false);
+	}
+	/* The loader may never have opened the root: taste it now (geli_keys.c). */
+	if (!geli_ikm_digest(ikm))
+		(void)geli_keys_prepare();
+	if (!geli_ikm_digest(ikm)) {
+		reason = geli_keys_reason();
+		return (false);
+	}
+	reason = "keying material ready";
 	ikm_len = SHA256_DIGEST_LENGTH;
 	if (answer_wanted() && !asked) {
 		asked = true;

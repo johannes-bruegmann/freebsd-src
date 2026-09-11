@@ -39,7 +39,18 @@ struct taste_ctx {
 	const char	*passphrase;
 	int		 unit;
 	bool		 found;
+	bool		 tasted;	/* a GELI partition was seen */
+	bool		 badkey;	/* ... and did not open */
 };
+
+/* Why the last geli_keys_prepare() ended as it did (diagnose_record). */
+static const char *keys_reason = "not tried";
+
+const char *
+geli_keys_reason(void)
+{
+	return (keys_reason);
+}
 
 /* diskread_t for ptable: blocks of secsz from the whole disk */
 static int
@@ -82,10 +93,12 @@ keys_partition(void *arg, const char *partname __unused,
 	    c->unit, part->index);
 	if (gdev == NULL)
 		return (0);
+	c->tasted = true;
 	if (geli_probe(gdev, c->passphrase, NULL) == 0) {
 		c->found = true;
 		return (1);
 	}
+	c->badkey = true;
 	return (0);
 }
 
@@ -126,8 +139,10 @@ geli_keys_prepare(void)
 
 	memset(&c, 0, sizeof(c));
 	c.passphrase = getenv("kern.geom.eli.passphrase");
-	if (c.passphrase == NULL)
+	if (c.passphrase == NULL) {
+		keys_reason = "no cached GELI passphrase (kern.geom.eli.passphrase)";
 		return (0);
+	}
 	keys_register_keyfiles();
 	for (unit = 0; unit < KEYS_DISKS && !c.found; unit++) {
 		snprintf(devname, sizeof(devname), "disk%d:", unit);
@@ -148,5 +163,9 @@ geli_keys_prepare(void)
 		close(c.fd);
 	}
 	geli_keyfile_clear();
+	keys_reason = c.found ? "GELI user key derived" :
+	    c.badkey ? "GELI partition seen, passphrase and key files did not open it" :
+	    c.tasted ? "GELI partition seen, no key" :
+	    "no GELI partition on disk0..disk7";
 	return (c.found ? 1 : 0);
 }

@@ -118,6 +118,15 @@ acpi_table_update(SHA256_CTX *ctx, uint64_t phys)
 
 	if (t == NULL)
 		return;
+	/*
+	 * Tables the firmware rewrites every boot are not the platform's
+	 * identity: FPDT carries the last boot's timings, BGRT the boot
+	 * logo's address and status, BERT the last error record. Hashing
+	 * them made AcpiTables fall on the very next boot (11.09.).
+	 */
+	if (memcmp(t, "FPDT", 4) == 0 || memcmp(t, "BGRT", 4) == 0 ||
+	    memcmp(t, "BERT", 4) == 0)
+		return;
 	len = rd32(t + 4);
 	if (len < 36 || len > 16 * 1024 * 1024)
 		return;

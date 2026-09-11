@@ -180,8 +180,11 @@ diagnose_record(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 
 	d->leaf = "record";
 	if (!rs->valid) {
-		snprintf(d->text, sizeof(d->text), "%s",
-		    rs->present ? "present,invalid" : "absent");
+		if (rs->present)
+			snprintf(d->text, sizeof(d->text), "present,invalid");
+		else
+			snprintf(d->text, sizeof(d->text), "absent (%s)",
+			    record_reason());
 		return;
 	}
 	s.epoch = rs->prev.boot_epoch;

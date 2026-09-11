@@ -90,7 +90,10 @@ const struct record_state	*record_state(void);
 bool				 record_secret_present(void);
 
 /* geli_keys.c: derive the root's user key in the loader (see there) */
-int	geli_keys_prepare(void);
+int		 geli_keys_prepare(void);
+const char	*geli_keys_reason(void);
+/* record.c: why this boot has no keying material (diagnose_record) */
+const char	*record_reason(void);
 
 /* Seal and write this boot's record; append the link to the medium. */
 bool	record_commit(uint8_t flags);
