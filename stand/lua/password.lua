@@ -212,7 +212,12 @@ function password.check()
 
 	local geli_prompt = loader.getenv("geom_eli_passphrase_prompt")
 	if geli_prompt ~= nil and geli_prompt:lower() == "yes" then
+		-- The boot's own read: the console lock of the platform-trust
+		-- loader lets it through (this file is manifest-verified). The
+		-- line goes to kern.geom.eli.passphrase and nowhere else.
+		loader.console_trusted(true)
 		local passphrase = doPrompt("GELI Passphrase:")
+		loader.console_trusted(false)
 		loader.setenv("kern.geom.eli.passphrase", passphrase)
 	end
 

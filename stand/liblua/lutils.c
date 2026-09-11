@@ -211,6 +211,25 @@ lua_getenv(lua_State *L)
 	return 1;
 }
 
+/*
+ * loader.console_trusted(true|false): the console lock of this fork's
+ * loaders (efi/loader/local/action.c, console.c getchar) lets every key
+ * cost the compiled-in secret once per boot. A verified script marks the
+ * one read that belongs to the boot itself -- the GELI passphrase of
+ * password.lua -- as trusted for its duration; every other read stays
+ * behind the lock. A loader without the lock ignores the call.
+ */
+static int
+lua_console_trusted(lua_State *L)
+{
+#ifdef LOADER_VERIEXEC
+	local_console_trusted(lua_toboolean(L, 1) ? 1 : -1);
+#else
+	(void)L;
+#endif
+	return 0;
+}
+
 static int
 lua_setenv(lua_State *L)
 {
@@ -389,6 +408,7 @@ lua_writefile(lua_State *L)
 static const struct luaL_Reg loaderlib[] = {
 	REG_SIMPLE(command),
 	REG_SIMPLE(command_error),
+	REG_SIMPLE(console_trusted),
 	REG_SIMPLE(delay),
 	REG_SIMPLE(exit),
 	REG_SIMPLE(getenv),
