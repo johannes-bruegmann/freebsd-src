@@ -561,7 +561,7 @@ local_console_lock(void)
 	if (!passphrase_dialogue(&a, "recovery passphrase", p->gate->secret,
 	    p->gate->duress, false))
 		halt_boot("locked");
-	gate_var(p->gate, "unlocked", name, sizeof(name));
+	gate_var(p->gate, "console", name, sizeof(name));
 	setenv(name, "1", 1);
 	console_unlocked = 1;
 	console_trusted--;

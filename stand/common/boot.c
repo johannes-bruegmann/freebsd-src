@@ -218,7 +218,20 @@ autoboot(int timeout, char *prompt)
 
 		for (;;) {
 			if (ischar()) {
+#ifdef LOADER_VERIEXEC
+				/*
+				 * Enter means "boot now" and is not interaction; any
+				 * other key asks for the prompt and costs the console
+				 * secret (efi/loader/local/action.c) before it does.
+				 */
+				local_console_trusted(1);
 				c = getchar();
+				local_console_trusted(-1);
+				if (c != '\r' && c != '\n')
+					local_console_lock();
+#else
+				c = getchar();
+#endif
 #ifdef BOOT_PROMPT_123
 				if ((c == '\r') || (c == '\n')) {
 					yes = 1;
