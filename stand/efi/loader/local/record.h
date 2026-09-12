@@ -94,6 +94,8 @@ int		 geli_keys_prepare(void);
 const char	*geli_keys_reason(void);
 /* record.c: why this boot has no keying material (diagnose_record) */
 const char	*record_reason(void);
+/* record.c: 8 hex keyed fingerprint of the GELI part of the material, "-" without */
+void		 record_geli_fingerprint(char out[9]);
 
 /* Seal and write this boot's record; append the link to the medium. */
 bool	record_commit(uint8_t flags);
