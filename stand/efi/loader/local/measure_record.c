@@ -207,14 +207,18 @@ diagnose_counter_step(int argc __unused, CHAR16 *argv[] __unused,
 	struct tpm_clock tc;
 	struct nvme_smart ns;
 	uint64_t nv = 0;
-	char t[96], n[64];
+	char t[128], n[64];
 
 	d->leaf = "anchors";
 	if (tpm_read_clock(&tc)) {
 		(void)tpm_nv_counter_read(&nv);
-		snprintf(t, sizeof(t), "tpm.reset=%u/%llu,tpm.nv=%llu/%llu",
+		/* now/previous each; the clock with the TPM's own safe flag */
+		snprintf(t, sizeof(t),
+		    "tpm.reset=%u/%llu,tpm.nv=%llu/%llu,tpm.clock=%llu/%llu,safe=%u",
 		    tc.reset_count, (unsigned long long)rs->prev.tpm_reset,
-		    (unsigned long long)nv, (unsigned long long)rs->prev.tpm_nvcount);
+		    (unsigned long long)nv, (unsigned long long)rs->prev.tpm_nvcount,
+		    (unsigned long long)tc.clock,
+		    (unsigned long long)rs->prev.tpm_clock, tc.safe ? 1 : 0);
 	} else
 		snprintf(t, sizeof(t), "tpm=none(%s)", tpm_last_error());
 	if (nvme_smart(&ns))
