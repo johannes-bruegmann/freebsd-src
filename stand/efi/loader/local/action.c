@@ -284,6 +284,14 @@ action_report(const struct appraisal *a)
 	list_by_verdict(a, VERDICT_PASS, passed, sizeof(passed));
 	printf("\n*** platform trust: failed=[%s] passed=[%s] ***\n",
 	    failed, passed);
+	/*
+	 * A key already in the buffer -- the Enter that chose this medium
+	 * in the firmware's boot menu -- would end the pause before it is
+	 * read, and the key then pressed for it would go to the next prompt
+	 * (illyria 12.09.: "as if the key were handed on to GELI").
+	 */
+	while (ischar())
+		(void)getchar();
 	printf("Press any key to continue.\n");
 	(void)getchar();
 }
