@@ -54,7 +54,8 @@ struct claim_result {
  * No expectation (unprovisioned or build-disarmed) skips; an armed claim whose
  * measurement is absent fails; otherwise expected vs actual.
  */
-enum verdict	claim_verdict(const struct claim *,
+struct gate;
+enum verdict	claim_verdict(const struct gate *, const struct claim *,
 		    const struct measurement *actual);
 
 #endif /* _LOCAL_CLAIM_H_ */

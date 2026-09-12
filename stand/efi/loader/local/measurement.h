@@ -38,6 +38,7 @@ struct measurement {
 	const char	*name;		/* what was observed */
 	enum meas_type	 type;		/* selects the union arm */
 	bool		 present;
+	const char	*key;		/* expectation from kenv: the gate's leaf, else NULL */
 	union {
 		uint8_t	byte;
 		uint8_t	digest[SHA256_DIGEST_LENGTH];
@@ -51,6 +52,14 @@ struct measurement {
 #define	MEASUREMENT_SHA256(nm, ...)					\
 	{ .name = (nm), .type = MEAS_SHA256, .present = true,		\
 	  .value.digest = { __VA_ARGS__ } }
+/*
+ * An expectation read at run time from loader.trust.<gate>.<key> (the
+ * stage's loader.trust.conf, manifest-signed): for a value that includes
+ * the loader itself -- the PCR bank, the loaded images -- and so cannot be
+ * compiled into it. Its type is the measurement's; absent key: skipped.
+ */
+#define	MEASUREMENT_KEY(nm, k)						\
+	{ .name = (nm), .type = MEAS_SHA256, .present = false, .key = (k) }
 
 /*
  * A diagnostic: extra human-readable evidence from the same observation,
@@ -64,6 +73,7 @@ struct diagnosis {
 
 /* generic operations on the datum */
 void	measurement_render(const struct measurement *, char *out, size_t);
+bool	measurement_parse(struct measurement *, const char *text);
 bool	measurement_equal(const struct measurement *,
 	    const struct measurement *);
 void	measurement_sha256(const void *, size_t,

@@ -92,31 +92,42 @@ diagnose_images(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 }
 
 /*
- * --- the lists behind a digest ---
+ * --- sets, and the lists behind them ---
  *
- * A digest that falls says nothing about which table or variable moved.
- * For learning what the firmware rewrites per boot (JB 11.09.: record
- * first, decide the claim's scope after), the measurements below also
- * publish one entry per item, comma-joined into kenv variables
- * loader.trust.list.<what>.<n> of at most LIST_CHUNK characters -- the
- * kernel drops any loader string longer than KENV_MNAMELEN+KENV_MVALLEN.
- * elvbootd's inventory_record_act files them per boot.
+ * AcpiTables and EfiVariables claim a SET the stage names (JB 12.09.: add
+ * semantics, never an exclusion): LOADER_TRUST_ACPI_SET and
+ * LOADER_TRUST_EFIVARS_SET, comma-separated identities -- an ACPI table as
+ * <signature>/<OEM table id> (thirty SSDTs tell apart only so), an EFI
+ * variable as <guid's first word>/<name>. The digest runs over the members'
+ * digests in the set's order, so neither the firmware's enumeration order
+ * nor an item outside the set can move it; a member the firmware no longer
+ * shows hashes as missing. An empty set measures nothing: not configured is
+ * not claimed, the claim is skipped.
+ *
+ * For choosing the set, every item the firmware shows is published, one
+ * entry each with an 8-hex digest, comma-joined into loader.trust.list.
+ * <what>.<n> of at most LIST_CHUNK characters (the kernel drops longer
+ * loader strings); members carry their digest, the rest "-". elvbootd's
+ * inventory_record_act files them per boot; stage inventory show/add work
+ * from those.
  */
 #define	LIST_CHUNK	200
 
-/*
- * What the digests leave out, decided per stage from those lists (JB
- * 12.09.: two boots of illyria moved exactly PHAT and MotherBoardHealth):
- * comma-separated ACPI signatures, and EFI variables as <guid's first
- * word>/<name> -- the form the list entries carry. Empty means nothing is
- * left out: a stage states its exclusions, the loader assumes none.
- */
-#ifndef LOADER_TRUST_ACPI_EXCLUDE
-#define	LOADER_TRUST_ACPI_EXCLUDE	""
+#ifndef LOADER_TRUST_ACPI_SET
+#define	LOADER_TRUST_ACPI_SET		""
 #endif
-#ifndef LOADER_TRUST_EFIVARS_EXCLUDE
-#define	LOADER_TRUST_EFIVARS_EXCLUDE	""
+#ifndef LOADER_TRUST_EFIVARS_SET
+#define	LOADER_TRUST_EFIVARS_SET	""
 #endif
+
+#define	ITEM_IDLEN	56
+
+struct item {
+	char		id[ITEM_IDLEN];
+	uint32_t	size;
+	uint32_t	attrs;
+	uint8_t		digest[SHA256_DIGEST_LENGTH];
+};
 
 /* True if the comma-separated list names the item (claim.c's disarmed()). */
 static bool
@@ -172,23 +183,68 @@ list_add(struct kenv_list *l, const char *entry)
 	l->len += n;
 }
 
-/* 8 hex digits of a SHA256 over the bytes: enough to tell boots apart. */
+/* 8 hex digits of a digest: enough to tell boots apart in a list. */
 static void
-digest8(const void *p, size_t n, char out[9])
+hex8(const uint8_t d[SHA256_DIGEST_LENGTH], char out[9])
+{
+	snprintf(out, 9, "%02x%02x%02x%02x", d[0], d[1], d[2], d[3]);
+}
+
+/*
+ * The set's digest over the items: each member's digest in the set's
+ * order, a member not among the items as "missing:<id>". false iff the set
+ * is empty. Publishes loader.trust.list.<what>.set = members=N,missing=M.
+ */
+static bool
+set_digest(const char *what, const char *set, const struct item *items,
+    unsigned int n, uint8_t out[SHA256_DIGEST_LENGTH])
 {
 	SHA256_CTX ctx;
-	uint8_t d[SHA256_DIGEST_LENGTH];
+	const char *p = set;
+	char id[ITEM_IDLEN], name[48], text[48];
+	size_t k;
+	unsigned int i, members = 0, missing = 0;
 
+	if (*set == '\0')
+		return (false);
 	SHA256_Init(&ctx);
-	SHA256_Update(&ctx, p, n);
-	SHA256_Final(d, &ctx);
-	snprintf(out, 9, "%02x%02x%02x%02x", d[0], d[1], d[2], d[3]);
+	while (*p != '\0') {
+		for (k = 0; p[k] != '\0' && p[k] != ','; k++)
+			;
+		if (k > 0 && k < sizeof(id)) {
+			memcpy(id, p, k);
+			id[k] = '\0';
+			for (i = 0; i < n; i++)
+				if (strcmp(items[i].id, id) == 0)
+					break;
+			if (i < n)
+				SHA256_Update(&ctx, items[i].digest,
+				    SHA256_DIGEST_LENGTH);
+			else {
+				SHA256_Update(&ctx, "missing:", 8);
+				SHA256_Update(&ctx, id, k);
+				missing++;
+			}
+			members++;
+		}
+		p += k;
+		while (*p == ',')
+			p++;
+	}
+	SHA256_Final(out, &ctx);
+	snprintf(name, sizeof(name), "loader.trust.list.%s.set", what);
+	snprintf(text, sizeof(text), "members=%u,missing=%u", members, missing);
+	setenv(name, text, 1);
+	return (true);
 }
 
 /* --- ACPI tables --- */
 
 static EFI_GUID acpi20_guid = ACPI_20_TABLE_GUID;
 static EFI_GUID acpi10_guid = ACPI_TABLE_GUID;
+
+#define	ACPI_MAX	96
+static struct item acpi_items[ACPI_MAX];
 
 static uint32_t
 rd32(const uint8_t *p)
@@ -203,38 +259,59 @@ rd64(const uint8_t *p)
 	return ((uint64_t)rd32(p) | (uint64_t)rd32(p + 4) << 32);
 }
 
-/* Hash one table: its header and body as the Length field says; list it. */
+/*
+ * <signature>/<OEM table id>: the table header's bytes 0-3 and 16-23, the
+ * id without trailing blanks, anything but [A-Za-z0-9_.-] as '_'.
+ */
 static void
-acpi_table_update(SHA256_CTX *ctx, uint64_t phys, struct kenv_list *l)
+acpi_item_id(const uint8_t *t, char *id, size_t sz)
+{
+	size_t n = 0, i, end = 24;
+	unsigned char c;
+
+	for (i = 0; i < 4 && n + 2 < sz; i++) {
+		c = t[i];
+		id[n++] = (c >= 0x21 && c < 0x7f && c != ',' && c != '/') ?
+		    (char)c : '_';
+	}
+	id[n++] = '/';
+	while (end > 16 && (t[end - 1] == ' ' || t[end - 1] == '\0'))
+		end--;
+	for (i = 16; i < end && n + 1 < sz; i++) {
+		c = t[i];
+		id[n++] = ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+		    (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-') ?
+		    (char)c : '_';
+	}
+	if (id[n - 1] == '/' && n + 1 < sz)
+		id[n++] = '-';
+	id[n] = '\0';
+}
+
+/* One table into the items and the list: its digest over the Length bytes. */
+static void
+acpi_table_note(uint64_t phys, unsigned int *n, struct kenv_list *l)
 {
 	const uint8_t *t = (const uint8_t *)(uintptr_t)phys;
+	struct item *it;
 	uint32_t len;
-	char entry[32], d8[9];
+	char entry[ITEM_IDLEN + 24], d8[9];
 
-	char sig[5];
-
-	if (t == NULL)
+	if (t == NULL || *n >= ACPI_MAX)
 		return;
 	len = rd32(t + 4);
-	memcpy(sig, t, 4);
-	sig[4] = '\0';
-	/*
-	 * Tables the firmware rewrites every boot are not the platform's
-	 * identity (illyria: FPDT with the last boot's timings, BGRT the
-	 * boot logo's address, PHAT the platform health record). The stage
-	 * names them in LOADER_TRUST_ACPI_EXCLUDE; they are listed with "-"
-	 * for the digest: seen, not counted.
-	 */
-	if (listed(LOADER_TRUST_ACPI_EXCLUDE, sig)) {
-		snprintf(entry, sizeof(entry), "%s:%u:-", sig, len);
-		list_add(l, entry);
-		return;
-	}
 	if (len < 36 || len > 16 * 1024 * 1024)
 		return;
-	SHA256_Update(ctx, t, len);
-	digest8(t, len, d8);
-	snprintf(entry, sizeof(entry), "%s:%u:%s", sig, len, d8);
+	it = &acpi_items[(*n)++];
+	acpi_item_id(t, it->id, sizeof(it->id));
+	it->size = len;
+	it->attrs = 0;
+	measurement_sha256(t, len, it->digest);
+	if (listed(LOADER_TRUST_ACPI_SET, it->id))
+		hex8(it->digest, d8);
+	else
+		snprintf(d8, sizeof(d8), "-");
+	snprintf(entry, sizeof(entry), "%s:%u:%s", it->id, len, d8);
 	list_add(l, entry);
 }
 
@@ -244,26 +321,24 @@ measure_acpi(int argc __unused, CHAR16 *argv[] __unused)
 	struct measurement m = { .name = "AcpiTables", .type = MEAS_SHA256 };
 	struct kenv_list l = { .what = "acpi" };
 	const uint8_t *rsdp, *xsdt, *rsdt;
-	SHA256_CTX ctx;
-	uint32_t len, i, n;
+	uint32_t len, i, cnt;
 	uint64_t addr;
+	unsigned int n = 0;
 
 	rsdp = efi_get_table(&acpi20_guid);
 	if (rsdp == NULL)
 		rsdp = efi_get_table(&acpi10_guid);
 	if (rsdp == NULL || memcmp(rsdp, "RSD PTR ", 8) != 0)
 		return (m);
-	SHA256_Init(&ctx);
 	/* revision 2: XSDT with 64-bit pointers; else RSDT with 32-bit */
 	if (rsdp[15] >= 2 && (addr = rd64(rsdp + 24)) != 0) {
 		xsdt = (const uint8_t *)(uintptr_t)addr;
 		len = rd32(xsdt + 4);
 		if (len < 36)
 			return (m);
-		SHA256_Update(&ctx, xsdt, 36);
-		n = (len - 36) / 8;
-		for (i = 0; i < n; i++)
-			acpi_table_update(&ctx, rd64(xsdt + 36 + 8 * i), &l);
+		cnt = (len - 36) / 8;
+		for (i = 0; i < cnt; i++)
+			acpi_table_note(rd64(xsdt + 36 + 8 * i), &n, &l);
 	} else {
 		rsdt = (const uint8_t *)(uintptr_t)rd32(rsdp + 16);
 		if (rsdt == NULL)
@@ -271,13 +346,14 @@ measure_acpi(int argc __unused, CHAR16 *argv[] __unused)
 		len = rd32(rsdt + 4);
 		if (len < 36)
 			return (m);
-		SHA256_Update(&ctx, rsdt, 36);
-		n = (len - 36) / 4;
-		for (i = 0; i < n; i++)
-			acpi_table_update(&ctx, rd32(rsdt + 36 + 4 * i), &l);
+		cnt = (len - 36) / 4;
+		for (i = 0; i < cnt; i++)
+			acpi_table_note(rd32(rsdt + 36 + 4 * i), &n, &l);
 	}
 	list_flush(&l);
-	SHA256_Final(m.value.digest, &ctx);
+	if (!set_digest("acpi", LOADER_TRUST_ACPI_SET, acpi_items, n,
+	    m.value.digest))
+		return (m);
 	m.present = true;
 	return (m);
 }
@@ -288,26 +364,29 @@ measure_acpi(int argc __unused, CHAR16 *argv[] __unused)
 static EFI_GUID elv_guid = { 0xe1b00747, 0x5e1f, 0x4c0d,
     { 0x9a, 0x0e, 0x00, 0x00, 0x00, 0xe1, 0xb0, 0x07 } };
 
+#define	EFIVARS_MAX	400
+static struct item efi_items[EFIVARS_MAX];
+
 struct measurement
 measure_efivars(int argc __unused, CHAR16 *argv[] __unused)
 {
 	struct measurement m = { .name = "EfiVariables", .type = MEAS_SHA256 };
 	struct kenv_list l = { .what = "efivars" };
-	char entry[96], ascii[41], item[52], d8[9];
+	struct item *it;
+	char entry[ITEM_IDLEN + 32], ascii[41], d8[9];
 	CHAR16 *name;
 	EFI_GUID guid;
 	UINTN nsz, dsz, cap = 1024;
 	UINT32 attrs;
 	uint8_t *data;
-	SHA256_CTX ctx;
 	EFI_STATUS st;
 	unsigned int n = 0;
+	bool overflow = false;
 
 	name = malloc(cap * sizeof(CHAR16));
 	if (name == NULL)
 		return (m);
 	name[0] = 0;
-	SHA256_Init(&ctx);
 	for (;;) {
 		nsz = cap * sizeof(CHAR16);
 		st = RS->GetNextVariableName(&nsz, name, &guid);
@@ -336,6 +415,10 @@ measure_efivars(int argc __unused, CHAR16 *argv[] __unused)
 			continue;
 		if ((attrs & EFI_VARIABLE_NON_VOLATILE) == 0)
 			continue;
+		if (n >= EFIVARS_MAX) {
+			overflow = true;
+			break;
+		}
 		data = malloc(dsz);
 		if (data == NULL)
 			break;
@@ -344,33 +427,24 @@ measure_efivars(int argc __unused, CHAR16 *argv[] __unused)
 
 			for (i = 0; name[i] != 0; i++) {
 				if (i < sizeof(ascii) - 1)
-					ascii[i] = (name[i] >= 0x20 &&
-					    name[i] < 0x7f) ? (char)name[i] : '?';
+					ascii[i] = (name[i] >= 0x21 &&
+					    name[i] < 0x7f && name[i] != ',' &&
+					    name[i] != '/' && name[i] != ':') ?
+					    (char)name[i] : '_';
 			}
 			ascii[i < sizeof(ascii) - 1 ? i : sizeof(ascii) - 1] = '\0';
-			snprintf(item, sizeof(item), "%08x/%s",
+			it = &efi_items[n++];
+			snprintf(it->id, sizeof(it->id), "%08x/%s",
 			    (unsigned int)guid.Data1, ascii);
-			/*
-			 * A variable the firmware rewrites per boot (illyria:
-			 * MotherBoardHealth) is named by the stage in
-			 * LOADER_TRUST_EFIVARS_EXCLUDE: listed with "-", not
-			 * counted.
-			 */
-			if (listed(LOADER_TRUST_EFIVARS_EXCLUDE, item)) {
-				snprintf(entry, sizeof(entry), "%s:%x:%u:-", item,
-				    (unsigned int)attrs, (unsigned int)dsz);
-				list_add(&l, entry);
-				free(data);
-				continue;
-			}
-			SHA256_Update(&ctx, name, i * sizeof(CHAR16));
-			SHA256_Update(&ctx, &guid, sizeof(guid));
-			SHA256_Update(&ctx, &attrs, sizeof(attrs));
-			SHA256_Update(&ctx, data, dsz);
-			n++;
+			it->size = (uint32_t)dsz;
+			it->attrs = attrs;
+			measurement_sha256(data, dsz, it->digest);
+			if (listed(LOADER_TRUST_EFIVARS_SET, it->id))
+				hex8(it->digest, d8);
+			else
+				snprintf(d8, sizeof(d8), "-");
 			/* <guid's first word>/<name>:<attrs>:<size>:<digest> */
-			digest8(data, dsz, d8);
-			snprintf(entry, sizeof(entry), "%s:%x:%u:%s", item,
+			snprintf(entry, sizeof(entry), "%s:%x:%u:%s", it->id,
 			    (unsigned int)attrs, (unsigned int)dsz, d8);
 			list_add(&l, entry);
 		}
@@ -378,9 +452,11 @@ measure_efivars(int argc __unused, CHAR16 *argv[] __unused)
 	}
 	free(name);
 	list_flush(&l);
-	if (n == 0)
+	if (overflow)
+		return (m);		/* an incomplete inventory claims nothing */
+	if (!set_digest("efivars", LOADER_TRUST_EFIVARS_SET, efi_items, n,
+	    m.value.digest))
 		return (m);
-	SHA256_Final(m.value.digest, &ctx);
 	m.present = true;
 	return (m);
 }

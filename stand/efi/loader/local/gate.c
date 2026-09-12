@@ -38,7 +38,7 @@ gate_appraise(const struct gate *g, int argc, CHAR16 *argv[],
 		struct measurement actual = c->measure(argc, argv);
 
 		r->actual = actual;			/* value copy */
-		r->verdict = claim_verdict(c, &actual);
+		r->verdict = claim_verdict(g, c, &actual);
 		r->diag.leaf = NULL;
 		if (c->diagnose != NULL)
 			c->diagnose(argc, argv, &r->diag);

@@ -96,6 +96,58 @@ measurement_render(const struct measurement *m, char *out, size_t sz)
 	}
 }
 
+/*
+ * The text of a value into the measurement, by its type: a byte as decimal,
+ * a digest as 64 hex. false, and the measurement not present, otherwise.
+ */
+bool
+measurement_parse(struct measurement *m, const char *text)
+{
+	size_t i, n = strlen(text);
+	unsigned int v = 0;
+
+	m->present = false;
+	switch (m->type) {
+	case MEAS_BYTE:
+		if (n == 0 || n > 3)
+			return (false);
+		for (i = 0; i < n; i++) {
+			if (text[i] < '0' || text[i] > '9')
+				return (false);
+			v = v * 10 + (unsigned int)(text[i] - '0');
+		}
+		if (v > 255)
+			return (false);
+		m->value.byte = (uint8_t)v;
+		break;
+	case MEAS_SHA256:
+		if (n != 2 * SHA256_DIGEST_LENGTH)
+			return (false);
+		for (i = 0; i < n; i++) {
+			char c = text[i];
+			unsigned int d;
+
+			if (c >= '0' && c <= '9')
+				d = (unsigned int)(c - '0');
+			else if (c >= 'a' && c <= 'f')
+				d = (unsigned int)(c - 'a' + 10);
+			else if (c >= 'A' && c <= 'F')
+				d = (unsigned int)(c - 'A' + 10);
+			else
+				return (false);
+			if (i % 2 == 0)
+				m->value.digest[i / 2] = (uint8_t)(d << 4);
+			else
+				m->value.digest[i / 2] |= (uint8_t)d;
+		}
+		break;
+	default:
+		return (false);
+	}
+	m->present = true;
+	return (true);
+}
+
 bool
 measurement_equal(const struct measurement *a, const struct measurement *b)
 {
