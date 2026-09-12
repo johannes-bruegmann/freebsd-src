@@ -378,7 +378,19 @@ local function loadModule(mod, silent)
 	local status = true
 	local blacklist = getBlacklist()
 	local pstatus
-	for k, v in pairs(mod) do
+	-- In name order, not pairs() order: the table's iteration order changes
+	-- from boot to boot, and with it the order the loader verifies the
+	-- modules in -- the measured-boot pseudo PCR (loader.ve.pcr) is a
+	-- running hash over exactly that order. Sorted, two boots of the same
+	-- files measure the same (illyria 12.09.: SoftPcr fell between two
+	-- boots with identical files, the module order had swapped).
+	local names = {}
+	for k in pairs(mod) do
+		names[#names + 1] = k
+	end
+	table.sort(names)
+	for _, k in ipairs(names) do
+		local v = mod[k]
 		if v.load ~= nil and v.load:lower() == "yes" then
 			local module_name = v.name or k
 			if not v.force and blacklist[module_name] ~= nil then
