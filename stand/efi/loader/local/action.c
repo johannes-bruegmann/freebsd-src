@@ -68,6 +68,9 @@ readsecret(char *buf, size_t sz)
 	int c;
 	bool first = true;
 
+	/* Nothing typed before the prompt is the secret (12.09.). */
+	while (ischar())
+		(void)getchar();
 	clock_now(&t0);
 	tprev = t0;
 	while ((c = getchar()) != '\r' && c != '\n' && c != -1) {
@@ -86,6 +89,24 @@ readsecret(char *buf, size_t sz)
 	clock_now(&tk);
 	evidence_note_prompt(clock_ms_between(&t0, &tk), cadence);
 	evidence_note_attempt();
+}
+
+/*
+ * The same line once more, to confirm: no evidence -- the ledger counts
+ * secrets typed, not lines -- and no typeahead either.
+ */
+void
+readsecret_confirm(char *buf, size_t sz)
+{
+	size_t n = 0;
+	int c;
+
+	while (ischar())
+		(void)getchar();
+	while ((c = getchar()) != '\r' && c != '\n' && c != -1)
+		if (n + 1 < sz)
+			buf[n++] = c;
+	buf[n] = '\0';
 }
 
 /* Lower-case hex of SHA256(buf); out holds 2*LEN + 1. */

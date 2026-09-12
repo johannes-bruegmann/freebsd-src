@@ -92,6 +92,7 @@ struct appraisal;
  * boot answer prompt of the record (record.c).
  */
 void	readsecret(char *buf, size_t sz);
+void	readsecret_confirm(char *buf, size_t sz);
 
 struct action {
 	const char	*name;

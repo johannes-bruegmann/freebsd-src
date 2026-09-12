@@ -329,6 +329,19 @@ geli_keys_prepare(void)
 		return (0);
 	}
 	tried = true;
+	{
+		/* its shape only: control characters and trailing blanks */
+		const unsigned char *q;
+		unsigned int ctl = 0;
+		size_t len = strlen(c.passphrase);
+
+		for (q = (const unsigned char *)c.passphrase; *q != '\0'; q++)
+			if (*q < 0x20 || *q == 0x7f)
+				ctl++;
+		keys_note("pw:ctl=%u,trail=%u", ctl, len > 0 &&
+		    (c.passphrase[len - 1] == ' ' || c.passphrase[len - 1] == '\t')
+		    ? 1U : 0U);
+	}
 	for (unit = 0; unit < KEYS_DISKS && !c.found; unit++) {
 		snprintf(devname, sizeof(devname), "disk%d:", unit);
 		c.fd = open(devname, O_RDONLY);

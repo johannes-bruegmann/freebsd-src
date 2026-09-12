@@ -215,6 +215,12 @@ function password.check()
 		-- The boot's own read: the console lock of the platform-trust
 		-- loader lets it through (this file is manifest-verified). The
 		-- line goes to kern.geom.eli.passphrase and nowhere else.
+		-- Keys pressed before the prompt -- a second tap at "Press any
+		-- key", a held key -- are not the passphrase (12.09.: the cached
+		-- line opened nothing while the typed one did).
+		while io.ischar() do
+			io.getchar()
+		end
 		loader.console_trusted(true)
 		local passphrase = doPrompt("GELI Passphrase:")
 		loader.console_trusted(false)
