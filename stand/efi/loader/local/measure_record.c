@@ -178,10 +178,14 @@ diagnose_record(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 	struct stamp s;
 	char iso[32];
 
+	char fp[9];
+
 	d->leaf = "record";
+	record_geli_fingerprint(fp);
 	if (!rs->valid) {
 		if (rs->present)
-			snprintf(d->text, sizeof(d->text), "present,invalid");
+			snprintf(d->text, sizeof(d->text),
+			    "present,invalid (geli=%s)", fp);
 		else
 			snprintf(d->text, sizeof(d->text), "absent (%s)",
 			    record_reason());
@@ -192,7 +196,7 @@ diagnose_record(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 	s.tsc = 0;
 	clock_calendar(&s, NULL, NULL, iso, sizeof(iso));
 	snprintf(d->text, sizeof(d->text),
-	    "counter=%llu,last=%s,bootms=%llu,flags=%u,chain=%s",
+	    "geli=%s,counter=%llu,last=%s,bootms=%llu,flags=%u,chain=%s", fp,
 	    (unsigned long long)rs->prev.counter, iso,
 	    (unsigned long long)rs->prev.boot_ms, rs->prev.flags,
 	    rs->medium_answered ? (rs->chain_on_medium ? "match" : "differs") :
