@@ -99,13 +99,13 @@ measure_heartbeat() {
 
 # measure_pcr_agree -- 1 iff the sha256 over PCR 0..7 of the SHA256 bank,
 # read from the TPM here, equals what the loader published as its PcrBank
-# (loader.trust.kernellock.pcr.sha256): the TPM itself against the loader's
+# (loader.trust.<gate>.pcr.sha256, whichever gate the stage bound it to): the TPM itself against the loader's
 # word, a witness the loader cannot forge. 0 on disagreement; absent when
 # the loader published nothing or the TPM cannot be read. Assumes
 # tpm2-tools (tpm2_pcrread) and /dev/tpm0 -- the tpm driver loaded.
 measure_pcr_agree() {
 	local said mine t
-	said=$($KENV -q loader.trust.kernellock.pcr.sha256 2>/dev/null)
+	said=$($KENV | $SED -n 's/^loader\.trust\.[a-z0-9_]*\.pcr\.sha256="\(.*\)"$/\1/p' | $HEAD -n1)
 	[ -n "$said" ] || return 0
 	t=$($MKTEMP) || return 0
 	if $TPM2_PCRREAD -Q -o "$t" sha256:0,1,2,3,4,5,6,7 2>/dev/null; then
@@ -117,14 +117,14 @@ measure_pcr_agree() {
 }
 
 # measure_images_expected -- 1 iff the LoadedImages digest the loader
-# published (loader.trust.inventory.images.sha256) equals ELV_IMAGES_EXPECTED,
+# published (loader.trust.<gate>.images.sha256) equals ELV_IMAGES_EXPECTED,
 # the stage's value at generation time: the second witness of a claim whose
 # expectation the loader reads from its conf. 0 on disagreement; absent
 # when either side is missing. Assumes the constant rendered by
 # stage earlboot mk from the record.
 measure_images_expected() {
 	local said
-	said=$($KENV -q loader.trust.inventory.images.sha256 2>/dev/null)
+	said=$($KENV | $SED -n 's/^loader\.trust\.[a-z0-9_]*\.images\.sha256="\(.*\)"$/\1/p' | $HEAD -n1)
 	[ -n "$said" ] && [ -n "$ELV_IMAGES_EXPECTED" ] || return 0
 	[ "$said" = "$ELV_IMAGES_EXPECTED" ] && printf '1\n' || printf '0\n'
 }
