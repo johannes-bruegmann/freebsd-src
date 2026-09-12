@@ -60,8 +60,8 @@ struct taste_ctx {
 /* Why the last geli_keys_prepare() ended as it did (diagnose_record):
  * the verdict, then what was seen -- disk by disk, partitions and GELI
  * partitions among them -- so a silent miss can be read after the boot. */
-static char keys_reason[160] = "not tried";
-static char keys_seen[96];
+static char keys_reason[288] = "not tried";
+static char keys_seen[200];
 
 const char *
 geli_keys_reason(void)
@@ -217,7 +217,7 @@ keys_hmac_keyfiles(struct hmac_ctx *ctx, const char *prov)
  */
 static bool
 keys_derive(const struct g_eli_metadata *md, const char *passphrase,
-    const char *name)
+    const char *name, daddr_t lastsector)
 {
 	char provs[KEYS_PROVIDERS][KEYS_PROVLEN];
 	u_char dkey[G_ELI_USERKEYLEN], key[G_ELI_USERKEYLEN];
@@ -225,9 +225,12 @@ keys_derive(const struct g_eli_metadata *md, const char *passphrase,
 	struct hmac_ctx ctx;
 	u_int keynum;
 	unsigned int np, g;
+	int nfiles[KEYS_PROVIDERS];
 	bool ok = false;
 
 	np = keys_providers(provs);
+	for (g = 0; g < np; g++)
+		nfiles[g] = 0;
 	if (md->md_iterations > 0) {
 		printf("platform trust: deriving the key of %s (%d iterations)...\n",
 		    name, md->md_iterations);
@@ -237,7 +240,8 @@ keys_derive(const struct g_eli_metadata *md, const char *passphrase,
 	for (g = 0; g <= np && !ok; g++) {
 		g_eli_crypto_hmac_init(&ctx, NULL, 0);
 		if (g < np) {
-			if (keys_hmac_keyfiles(&ctx, provs[g]) <= 0)
+			nfiles[g] = keys_hmac_keyfiles(&ctx, provs[g]);
+			if (nfiles[g] <= 0)
 				continue;
 		} else if (md->md_iterations < 0)
 			break;		/* key files only, and no set fit */
@@ -258,6 +262,14 @@ keys_derive(const struct g_eli_metadata *md, const char *passphrase,
 	explicit_bzero(key, sizeof(key));
 	explicit_bzero(mkey, sizeof(mkey));
 	explicit_bzero(&ctx, sizeof(ctx));
+	/* What was tried, for diagnose_record: <name>(it=N,v=V,prov=ok|SIZE,sets=P:files..) */
+	keys_note("%s(it=%d,v=%u,prov=%s,sets=%u", name, md->md_iterations,
+	    md->md_version,
+	    md->md_provsize == (uint64_t)(lastsector + 1) * DEV_BSIZE ? "ok" :
+	    "off", np);
+	for (g = 0; g < np; g++)
+		keys_note("%c%s:%d", g ? ',' : ':', provs[g], nfiles[g]);
+	keys_note(",%s)", ok ? "key" : "nokey");
 	return (ok);
 }
 
@@ -281,7 +293,7 @@ keys_partition(void *arg, const char *partname __unused,
 	c->tasted = true;
 	c->gelis++;
 	snprintf(name, sizeof(name), "disk%dp%d", c->unit, part->index);
-	if (keys_derive(&md, c->passphrase, name))
+	if (keys_derive(&md, c->passphrase, name, lastsector))
 		c->found = true;
 	else
 		c->badkey = true;
@@ -331,13 +343,14 @@ geli_keys_prepare(void)
 			if (table != NULL) {
 				ptable_iterate(table, &c, keys_partition);
 				ptable_close(table);
-				keys_note("%sdisk%d:%u/%u", unit ? "," : "",
+				keys_note("%sdisk%d:%u/%u", keys_seen[0] ? ";" : "",
 				    unit, c.gelis, c.parts);
 			} else
-				keys_note("%sdisk%d:notable", unit ? "," : "",
-				    unit);
+				keys_note("%sdisk%d:notable",
+				    keys_seen[0] ? ";" : "", unit);
 		} else
-			keys_note("%sdisk%d:noioctl", unit ? "," : "", unit);
+			keys_note("%sdisk%d:noioctl", keys_seen[0] ? ";" : "",
+			    unit);
 		close(c.fd);
 	}
 	snprintf(keys_reason, sizeof(keys_reason), "%s [%s]",
