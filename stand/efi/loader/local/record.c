@@ -185,10 +185,32 @@ ikm_gather(void)
 	reason = "keying material ready";
 	ikm_len = SHA256_DIGEST_LENGTH;
 	if (answer_wanted() && !asked) {
+		char again[ANSWER_MAX];
+		int tries;
+
 		asked = true;
-		printf("\nBoot answer: ");
-		readsecret(answer, sizeof(answer));
-		printf("\n");
+		/*
+		 * Typed twice, taken when both agree (JB 12.09.): the answer
+		 * is never verified against anything, a slip would break the
+		 * chain silently. Three mismatches: no answer, no material.
+		 */
+		for (tries = 0; tries < 3; tries++) {
+			printf("\nBoot answer: ");
+			readsecret(answer, sizeof(answer));
+			printf("\nBoot answer, again: ");
+			readsecret_confirm(again, sizeof(again));
+			printf("\n");
+			if (strcmp(answer, again) == 0)
+				break;
+			printf("the two answers differ\n");
+		}
+		explicit_bzero(again, sizeof(again));
+		if (tries == 3) {
+			explicit_bzero(answer, sizeof(answer));
+			ikm_len = 0;
+			reason = "boot answer not confirmed (three mismatches)";
+			return (false);
+		}
 		n = strlen(answer);
 		memcpy(ikm + ikm_len, answer, n);
 		ikm_len += n;
