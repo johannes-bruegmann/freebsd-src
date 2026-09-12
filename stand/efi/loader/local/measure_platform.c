@@ -105,11 +105,11 @@ diagnose_images(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
  * not claimed, the claim is skipped.
  *
  * For choosing the set, every item the firmware shows is published, one
- * entry each with an 8-hex digest, comma-joined into loader.trust.list.
- * <what>.<n> of at most LIST_CHUNK characters (the kernel drops longer
- * loader strings); members carry their digest, the rest "-". elvbootd's
- * inventory_record_act files them per boot; stage inventory show/add work
- * from those.
+ * entry each with an 8-hex digest -- members and non-members alike, the
+ * digest is the evidence of what moves -- comma-joined into
+ * loader.trust.list.<what>.<n> of at most LIST_CHUNK characters (the kernel
+ * drops longer loader strings). elvbootd's inventory_record_act files them
+ * per boot; stage inventory show/add work from those.
  */
 #define	LIST_CHUNK	200
 
@@ -307,10 +307,7 @@ acpi_table_note(uint64_t phys, unsigned int *n, struct kenv_list *l)
 	it->size = len;
 	it->attrs = 0;
 	measurement_sha256(t, len, it->digest);
-	if (listed(LOADER_TRUST_ACPI_SET, it->id))
-		hex8(it->digest, d8);
-	else
-		snprintf(d8, sizeof(d8), "-");
+	hex8(it->digest, d8);
 	snprintf(entry, sizeof(entry), "%s:%u:%s", it->id, len, d8);
 	list_add(l, entry);
 }
@@ -439,10 +436,7 @@ measure_efivars(int argc __unused, CHAR16 *argv[] __unused)
 			it->size = (uint32_t)dsz;
 			it->attrs = attrs;
 			measurement_sha256(data, dsz, it->digest);
-			if (listed(LOADER_TRUST_EFIVARS_SET, it->id))
-				hex8(it->digest, d8);
-			else
-				snprintf(d8, sizeof(d8), "-");
+			hex8(it->digest, d8);
 			/* <guid's first word>/<name>:<attrs>:<size>:<digest> */
 			snprintf(entry, sizeof(entry), "%s:%x:%u:%s", it->id,
 			    (unsigned int)attrs, (unsigned int)dsz, d8);
