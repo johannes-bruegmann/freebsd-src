@@ -228,6 +228,7 @@ passphrase_dialogue(const struct appraisal *a, const char *label,
 				evidence_note_console();
 			return (true);
 		}
+		evidence_note_wrong();
 		printf("wrong.\n");
 	}
 	return (false);
@@ -607,7 +608,14 @@ action_tarpit(const struct appraisal *a __unused)
 	delay((int)s * 1000000);
 }
 
-/* Halt once the attempts of this boot reach loader.trust.<gate>.attempts (3). */
+/*
+ * Halt once the WRONG passphrases of this boot reach
+ * loader.trust.<gate>.attempts (3). Wrong ones only: the routine hidden
+ * lines -- the boot answer, the sentinel -- and the entry that just opened
+ * a gate are not attempts against it. Counting them locked the owner out
+ * right after a correct recovery (illyria 12.09., JB: "die Logik stimmt
+ * nicht"): console secret, answer, sentinel, recovery made five.
+ */
 static void
 action_lockout(const struct appraisal *a)
 {
@@ -616,7 +624,7 @@ action_lockout(const struct appraisal *a)
 
 	if (lim != NULL)
 		n = (unsigned int)strtoul(lim, NULL, 10);
-	if (n > 0 && evidence()->attempts >= n)
+	if (n > 0 && evidence()->wrong >= n)
 		halt_boot("locked out");
 }
 
