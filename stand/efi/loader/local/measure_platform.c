@@ -129,24 +129,6 @@ struct item {
 	uint8_t		digest[SHA256_DIGEST_LENGTH];
 };
 
-/* True if the comma-separated list names the item (claim.c's disarmed()). */
-static bool
-listed(const char *list, const char *item)
-{
-	const char *p = list;
-	size_t n = strlen(item);
-
-	while (*p != '\0') {
-		if (strncmp(p, item, n) == 0 && (p[n] == '\0' || p[n] == ','))
-			return (true);
-		while (*p != '\0' && *p != ',')
-			p++;
-		while (*p == ',')
-			p++;
-	}
-	return (false);
-}
-
 struct kenv_list {
 	const char	*what;
 	unsigned int	 seq;
