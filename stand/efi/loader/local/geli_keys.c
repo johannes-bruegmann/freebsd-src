@@ -263,7 +263,8 @@ keys_derive(const struct g_eli_metadata *md, const char *passphrase,
 	explicit_bzero(mkey, sizeof(mkey));
 	explicit_bzero(&ctx, sizeof(ctx));
 	/* What was tried, for diagnose_record: <name>(it=N,v=V,prov=ok|SIZE,sets=P:files..) */
-	keys_note("%s(it=%d,v=%u,prov=%s,sets=%u", name, md->md_iterations,
+	keys_note("%s%s(it=%d,v=%u,prov=%s,sets=%u", keys_seen[0] ? ";" : "",
+	    name, md->md_iterations,
 	    md->md_version,
 	    md->md_provsize == (uint64_t)(lastsector + 1) * DEV_BSIZE ? "ok" :
 	    "off", np);
