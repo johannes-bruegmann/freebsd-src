@@ -13,6 +13,7 @@
 
 #include "measurement.h"
 #include "claim.h"
+#include "gate.h"
 
 #ifndef LOADER_TRUST_SKIP		/* comma-separated claim names to disarm */
 #define	LOADER_TRUST_SKIP	""
@@ -37,12 +38,33 @@ disarmed(const char *name)
 }
 
 enum verdict
-claim_verdict(const struct claim *c, const struct measurement *actual)
+claim_verdict(const struct gate *g, const struct claim *c,
+    const struct measurement *actual)
 {
-	if (!c->expected.present || disarmed(c->expected.name))
+	struct measurement expected = c->expected;
+	char name[64];
+	const char *text;
+
+	if (expected.key != NULL) {
+		/*
+		 * From loader.trust.<gate>.<key>: the stage's conf, not the
+		 * binary. No value: unprovisioned, skipped. A value that does
+		 * not parse: provisioned and broken, a failure, never a skip.
+		 */
+		if (disarmed(expected.name))
+			return (VERDICT_SKIP);
+		gate_var(g, expected.key, name, sizeof(name));
+		text = getenv(name);
+		if (text == NULL)
+			return (VERDICT_SKIP);
+		expected.type = actual->type;
+		if (!measurement_parse(&expected, text))
+			return (VERDICT_FAIL);
+	}
+	if (!expected.present || disarmed(expected.name))
 		return (VERDICT_SKIP);		/* unprovisioned / disarmed */
 	if (!actual->present)
 		return (VERDICT_FAIL);		/* armed, but nothing measured */
-	return (measurement_equal(&c->expected, actual) ?
+	return (measurement_equal(&expected, actual) ?
 	    VERDICT_PASS : VERDICT_FAIL);
 }

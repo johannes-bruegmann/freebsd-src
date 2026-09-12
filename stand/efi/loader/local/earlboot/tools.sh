@@ -64,6 +64,7 @@ SOCKSTAT=/usr/bin/sockstat # test:silent
 SORT=/usr/bin/sort
 STAT=/usr/bin/stat
 SYSCTL=/sbin/sysctl # test:sysctl
+TPM2_PCRREAD=/usr/local/bin/tpm2_pcrread # test:silent
 TAIL=/usr/bin/tail
 TEE=/usr/bin/tee # test:tee
 TOUCH=/usr/bin/touch
