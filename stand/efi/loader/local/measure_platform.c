@@ -104,6 +104,38 @@ diagnose_images(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
  */
 #define	LIST_CHUNK	200
 
+/*
+ * What the digests leave out, decided per stage from those lists (JB
+ * 12.09.: two boots of illyria moved exactly PHAT and MotherBoardHealth):
+ * comma-separated ACPI signatures, and EFI variables as <guid's first
+ * word>/<name> -- the form the list entries carry. Empty means nothing is
+ * left out: a stage states its exclusions, the loader assumes none.
+ */
+#ifndef LOADER_TRUST_ACPI_EXCLUDE
+#define	LOADER_TRUST_ACPI_EXCLUDE	""
+#endif
+#ifndef LOADER_TRUST_EFIVARS_EXCLUDE
+#define	LOADER_TRUST_EFIVARS_EXCLUDE	""
+#endif
+
+/* True if the comma-separated list names the item (claim.c's disarmed()). */
+static bool
+listed(const char *list, const char *item)
+{
+	const char *p = list;
+	size_t n = strlen(item);
+
+	while (*p != '\0') {
+		if (strncmp(p, item, n) == 0 && (p[n] == '\0' || p[n] == ','))
+			return (true);
+		while (*p != '\0' && *p != ',')
+			p++;
+		while (*p == ',')
+			p++;
+	}
+	return (false);
+}
+
 struct kenv_list {
 	const char	*what;
 	unsigned int	 seq;
@@ -179,19 +211,22 @@ acpi_table_update(SHA256_CTX *ctx, uint64_t phys, struct kenv_list *l)
 	uint32_t len;
 	char entry[32], d8[9];
 
+	char sig[5];
+
 	if (t == NULL)
 		return;
 	len = rd32(t + 4);
+	memcpy(sig, t, 4);
+	sig[4] = '\0';
 	/*
 	 * Tables the firmware rewrites every boot are not the platform's
-	 * identity: FPDT carries the last boot's timings, BGRT the boot
-	 * logo's address and status, BERT the last error record. Hashing
-	 * them made AcpiTables fall on the very next boot (11.09.). They
-	 * are listed with "-" for the digest: seen, not counted.
+	 * identity (illyria: FPDT with the last boot's timings, BGRT the
+	 * boot logo's address, PHAT the platform health record). The stage
+	 * names them in LOADER_TRUST_ACPI_EXCLUDE; they are listed with "-"
+	 * for the digest: seen, not counted.
 	 */
-	if (memcmp(t, "FPDT", 4) == 0 || memcmp(t, "BGRT", 4) == 0 ||
-	    memcmp(t, "BERT", 4) == 0) {
-		snprintf(entry, sizeof(entry), "%.4s:%u:-", t, len);
+	if (listed(LOADER_TRUST_ACPI_EXCLUDE, sig)) {
+		snprintf(entry, sizeof(entry), "%s:%u:-", sig, len);
 		list_add(l, entry);
 		return;
 	}
@@ -199,7 +234,7 @@ acpi_table_update(SHA256_CTX *ctx, uint64_t phys, struct kenv_list *l)
 		return;
 	SHA256_Update(ctx, t, len);
 	digest8(t, len, d8);
-	snprintf(entry, sizeof(entry), "%.4s:%u:%s", t, len, d8);
+	snprintf(entry, sizeof(entry), "%s:%u:%s", sig, len, d8);
 	list_add(l, entry);
 }
 
@@ -258,7 +293,7 @@ measure_efivars(int argc __unused, CHAR16 *argv[] __unused)
 {
 	struct measurement m = { .name = "EfiVariables", .type = MEAS_SHA256 };
 	struct kenv_list l = { .what = "efivars" };
-	char entry[96], ascii[41], d8[9];
+	char entry[96], ascii[41], item[52], d8[9];
 	CHAR16 *name;
 	EFI_GUID guid;
 	UINTN nsz, dsz, cap = 1024;
@@ -313,6 +348,21 @@ measure_efivars(int argc __unused, CHAR16 *argv[] __unused)
 					    name[i] < 0x7f) ? (char)name[i] : '?';
 			}
 			ascii[i < sizeof(ascii) - 1 ? i : sizeof(ascii) - 1] = '\0';
+			snprintf(item, sizeof(item), "%08x/%s",
+			    (unsigned int)guid.Data1, ascii);
+			/*
+			 * A variable the firmware rewrites per boot (illyria:
+			 * MotherBoardHealth) is named by the stage in
+			 * LOADER_TRUST_EFIVARS_EXCLUDE: listed with "-", not
+			 * counted.
+			 */
+			if (listed(LOADER_TRUST_EFIVARS_EXCLUDE, item)) {
+				snprintf(entry, sizeof(entry), "%s:%x:%u:-", item,
+				    (unsigned int)attrs, (unsigned int)dsz);
+				list_add(&l, entry);
+				free(data);
+				continue;
+			}
 			SHA256_Update(&ctx, name, i * sizeof(CHAR16));
 			SHA256_Update(&ctx, &guid, sizeof(guid));
 			SHA256_Update(&ctx, &attrs, sizeof(attrs));
@@ -320,9 +370,8 @@ measure_efivars(int argc __unused, CHAR16 *argv[] __unused)
 			n++;
 			/* <guid's first word>/<name>:<attrs>:<size>:<digest> */
 			digest8(data, dsz, d8);
-			snprintf(entry, sizeof(entry), "%08x/%s:%x:%u:%s",
-			    (unsigned int)guid.Data1, ascii, (unsigned int)attrs,
-			    (unsigned int)dsz, d8);
+			snprintf(entry, sizeof(entry), "%s:%x:%u:%s", item,
+			    (unsigned int)attrs, (unsigned int)dsz, d8);
 			list_add(&l, entry);
 		}
 		free(data);
