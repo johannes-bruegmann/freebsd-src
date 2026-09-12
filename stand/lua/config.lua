@@ -384,11 +384,16 @@ local function loadModule(mod, silent)
 	-- running hash over exactly that order. Sorted, two boots of the same
 	-- files measure the same (illyria 12.09.: SoftPcr fell between two
 	-- boots with identical files, the module order had swapped).
+	-- (The loader's Lua has no table library: an insertion sort.)
 	local names = {}
 	for k in pairs(mod) do
-		names[#names + 1] = k
+		local i = #names
+		while i > 0 and names[i] > k do
+			names[i + 1] = names[i]
+			i = i - 1
+		end
+		names[i + 1] = k
 	end
-	table.sort(names)
 	for _, k in ipairs(names) do
 		local v = mod[k]
 		if v.load ~= nil and v.load:lower() == "yes" then
