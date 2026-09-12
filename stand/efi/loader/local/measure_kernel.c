@@ -275,8 +275,8 @@ diagnose_ledger(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 
 	d->leaf = "ledger";
 	snprintf(d->text, sizeof(d->text),
-	    "gates=%u,failed=%u,prompted=%u,unlocked=%u,console=%u",
-	    e->ngates, e->failed_gates, e->prompted, e->unlocked, e->console);
+	    "gates=%u,failed=%u,prompted=%u,unlocked=%u,console=%u,wrong=%u",
+	    e->ngates, e->failed_gates, e->prompted, e->unlocked, e->console, e->wrong);
 	for (i = 0; i < e->ngates; i++) {
 		snprintf(item, sizeof(item), ";%u:%s:%s", e->gates[i].phase,
 		    e->gates[i].gate,

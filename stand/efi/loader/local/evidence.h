@@ -47,6 +47,7 @@ struct evidence {
 	unsigned int		 unlocked;	/* successful unlocks of a GATE */
 	unsigned int		 console;	/* the console lock opened (action.c) */
 	unsigned int		 attempts;	/* passphrase entries, all prompts */
+	unsigned int		 wrong;		/* ... of which wrong (lockout_act) */
 	uint64_t		 prompt_ms;	/* summed dwell at prompts */
 	uint64_t		 cadence_ms;	/* longest pause between two keys */
 	bool			 duress;	/* a duress tell was observed */
@@ -65,6 +66,7 @@ void	evidence_note_action(const char *name);	/* counts the interactive ones */
 void	evidence_note_unlock(void);
 void	evidence_note_console(void);
 void	evidence_note_attempt(void);
+void	evidence_note_wrong(void);
 void	evidence_note_prompt(uint64_t dwell_ms, uint64_t cadence_ms);
 void	evidence_set_duress(void);
 void	evidence_set_taint(void);

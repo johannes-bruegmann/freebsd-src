@@ -108,6 +108,13 @@ evidence_note_attempt(void)
 	E.attempts++;
 }
 
+/* A passphrase that was neither the secret nor the duress word. */
+void
+evidence_note_wrong(void)
+{
+	E.wrong++;
+}
+
 void
 evidence_note_prompt(uint64_t dwell_ms, uint64_t cadence_ms)
 {
