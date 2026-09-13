@@ -117,11 +117,11 @@ measure_pcr_agree() {
 }
 
 # measure_images_expected -- 1 iff the LoadedImages digest the loader
-# published (loader.trust.<gate>.images.sha256) equals ELV_IMAGES_EXPECTED,
-# the stage's value at generation time: the second witness of a claim whose
-# expectation the loader reads from its conf. 0 on disagreement; absent
-# when either side is missing. Assumes the constant rendered by
-# stage earlboot mk from the record.
+# published (loader.trust.<gate>.images.sha256, over the stage's image set)
+# equals ELV_IMAGES_EXPECTED, the stage's baseline LOADER_TRUST_IMAGES_DIGEST
+# at generation time: the second witness, the loader's word against the
+# stage's. 0 on disagreement; absent when either side is missing. Assumes
+# the constant rendered by stage earlboot mk from the baseline.
 measure_images_expected() {
 	local said
 	said=$($KENV | $SED -n 's/^loader\.trust\.[a-z0-9_]*\.images\.sha256="\(.*\)"$/\1/p' | $HEAD -n1)

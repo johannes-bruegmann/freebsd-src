@@ -27,70 +27,6 @@
 static EFI_GUID imgid = LOADED_IMAGE_PROTOCOL;
 static EFI_GUID pciio_guid = EFI_PCI_IO_PROTOCOL_GUID;
 
-/* --- our own image --- */
-
-struct measurement
-measure_image(int argc __unused, CHAR16 *argv[] __unused)
-{
-	struct measurement m = { .name = "RunningImage", .type = MEAS_SHA256 };
-	EFI_LOADED_IMAGE *img;
-
-	if (EFI_ERROR(BS->HandleProtocol(IH, &imgid, (void **)&img)))
-		return (m);
-	if (img->ImageBase == NULL || img->ImageSize == 0)
-		return (m);
-	measurement_sha256(img->ImageBase, (size_t)img->ImageSize, m.value.digest);
-	m.present = true;
-	return (m);
-}
-
-/* --- every loaded image, in handle order --- */
-
-static unsigned int images_n;
-
-struct measurement
-measure_images(int argc __unused, CHAR16 *argv[] __unused)
-{
-	struct measurement m = { .name = "LoadedImages", .type = MEAS_SHA256 };
-	EFI_HANDLE *handles = NULL;
-	UINTN n = 0, i;
-	EFI_LOADED_IMAGE *img;
-	SHA256_CTX ctx;
-	uint64_t sz;
-
-	if (EFI_ERROR(BS->LocateHandleBuffer(ByProtocol, &imgid, NULL, &n,
-	    &handles)))
-		return (m);
-	SHA256_Init(&ctx);
-	images_n = 0;
-	for (i = 0; i < n; i++) {
-		if (handles[i] == IH)
-			continue;		/* ourselves: measure_image */
-		if (EFI_ERROR(BS->HandleProtocol(handles[i], &imgid,
-		    (void **)&img)))
-			continue;
-		if (img->ImageBase == NULL || img->ImageSize == 0)
-			continue;
-		sz = img->ImageSize;
-		SHA256_Update(&ctx, &sz, sizeof(sz));
-		SHA256_Update(&ctx, img->ImageBase, (size_t)sz);
-		images_n++;
-	}
-	BS->FreePool(handles);
-	if (images_n == 0)
-		return (m);
-	SHA256_Final(m.value.digest, &ctx);
-	m.present = true;
-	return (m);
-}
-
-void
-diagnose_images(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
-{
-	d->leaf = "images.count";
-	snprintf(d->text, sizeof(d->text), "%u", images_n);
-}
-
 /*
  * --- sets, and the lists behind them ---
  *
@@ -218,6 +154,156 @@ set_digest(const char *what, const char *set, const struct item *items,
 	snprintf(text, sizeof(text), "members=%u,missing=%u", members, missing);
 	setenv(name, text, 1);
 	return (true);
+}
+
+/* --- our own image --- */
+
+struct measurement
+measure_image(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "RunningImage", .type = MEAS_SHA256 };
+	EFI_LOADED_IMAGE *img;
+
+	if (EFI_ERROR(BS->HandleProtocol(IH, &imgid, (void **)&img)))
+		return (m);
+	if (img->ImageBase == NULL || img->ImageSize == 0)
+		return (m);
+	measurement_sha256(img->ImageBase, (size_t)img->ImageSize, m.value.digest);
+	m.present = true;
+	return (m);
+}
+
+/* --- every loaded image, in handle order --- */
+
+/*
+ * LoadedImages claims a SET too (JB 13.09.): three boots, three digests,
+ * two of them with the same signed loader -- the firmware does not load
+ * its images reproducibly, so what is claimed is what the owner took in.
+ * An image is identified by the last node of its file path: a firmware
+ * volume file by its GUID's first word (fv/<8 hex>), a file by its base
+ * name (file/<name>), anything else by a digest of the whole path
+ * (dp/<8 hex>), an image without a path by its handle index (img/<n>).
+ * The digest is the image's contents. The loader itself is listed like
+ * the rest (file/BOOTX64.EFI); taking it into the set makes the compiled
+ * digest circular -- PcrBank covers the loader, the set need not.
+ */
+#ifndef LOADER_TRUST_IMAGES_SET
+#define	LOADER_TRUST_IMAGES_SET	""
+#endif
+
+#define	IMAGES_MAX	512
+static struct item image_items[IMAGES_MAX];
+static unsigned int images_n;
+
+/* PI: a file in a firmware volume, MEDIA_DEVICE_PATH subtype 6 (not in efidevp.h) */
+#define	MEDIA_PIWG_FW_FILE_DP	0x06
+typedef struct {
+	EFI_DEVICE_PATH	Header;
+	EFI_GUID	FvFileName;
+} FV_FILEPATH_DEVICE_PATH;
+
+static void
+image_item_id(EFI_LOADED_IMAGE *img, unsigned int index, char *id, size_t sz)
+{
+	EFI_DEVICE_PATH *dp = img->FilePath, *last;
+	uint8_t d[SHA256_DIGEST_LENGTH];
+
+	if (dp == NULL) {
+		snprintf(id, sz, "img/%u", index);
+		return;
+	}
+	last = efi_devpath_last_node(dp);
+	if (last != NULL && DevicePathType(last) == MEDIA_DEVICE_PATH) {
+		if (DevicePathSubType(last) == MEDIA_PIWG_FW_FILE_DP &&
+		    DevicePathNodeLength(last) >= sizeof(FV_FILEPATH_DEVICE_PATH)) {
+			const FV_FILEPATH_DEVICE_PATH *fv = (const void *)last;
+
+			snprintf(id, sz, "fv/%08x",
+			    (unsigned int)fv->FvFileName.Data1);
+			return;
+		}
+		if (DevicePathSubType(last) == MEDIA_FILEPATH_DP) {
+			const FILEPATH_DEVICE_PATH *fp = (const void *)last;
+			size_t n = (DevicePathNodeLength(last) -
+			    __offsetof(FILEPATH_DEVICE_PATH, PathName)) / sizeof(CHAR16);
+			size_t i, start = 0, k = 5;
+			unsigned char c;
+
+			/* the base name, in the identity's alphabet */
+			for (i = 0; i < n && fp->PathName[i] != 0; i++)
+				if (fp->PathName[i] == '\\' || fp->PathName[i] == '/')
+					start = i + 1;
+			snprintf(id, sz, "file/");
+			for (i = start; i < n && fp->PathName[i] != 0 && k + 1 < sz; i++) {
+				c = fp->PathName[i] < 0x80 ? (unsigned char)fp->PathName[i] : '_';
+				id[k++] = ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+				    (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-') ?
+				    (char)c : '_';
+			}
+			id[k] = '\0';
+			if (k == 5 && k + 1 < sz) {
+				id[k++] = '-';
+				id[k] = '\0';
+			}
+			return;
+		}
+	}
+	measurement_sha256(dp, (size_t)efi_devpath_length(dp), d);
+	snprintf(id, sz, "dp/%02x%02x%02x%02x", d[0], d[1], d[2], d[3]);
+}
+
+struct measurement
+measure_images(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "LoadedImages", .type = MEAS_SHA256 };
+	struct kenv_list l = { .what = "images" };
+	struct item *it;
+	EFI_HANDLE *handles = NULL;
+	UINTN n = 0, i;
+	EFI_LOADED_IMAGE *img;
+	char entry[ITEM_IDLEN + 24], d8[9];
+	bool overflow = false;
+
+	if (EFI_ERROR(BS->LocateHandleBuffer(ByProtocol, &imgid, NULL, &n,
+	    &handles)))
+		return (m);
+	images_n = 0;
+	for (i = 0; i < n; i++) {
+		if (EFI_ERROR(BS->HandleProtocol(handles[i], &imgid,
+		    (void **)&img)))
+			continue;
+		if (img->ImageBase == NULL || img->ImageSize == 0)
+			continue;
+		if (images_n >= IMAGES_MAX) {
+			overflow = true;
+			break;
+		}
+		it = &image_items[images_n++];
+		image_item_id(img, (unsigned int)i, it->id, sizeof(it->id));
+		it->size = (uint32_t)img->ImageSize;
+		it->attrs = 0;
+		measurement_sha256(img->ImageBase, (size_t)img->ImageSize,
+		    it->digest);
+		hex8(it->digest, d8);
+		snprintf(entry, sizeof(entry), "%s:%u:%s", it->id, it->size, d8);
+		list_add(&l, entry);
+	}
+	BS->FreePool(handles);
+	list_flush(&l);
+	if (overflow)
+		return (m);		/* an incomplete inventory claims nothing */
+	if (!set_digest("images", LOADER_TRUST_IMAGES_SET, image_items,
+	    images_n, m.value.digest))
+		return (m);
+	m.present = true;
+	return (m);
+}
+
+void
+diagnose_images(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
+{
+	d->leaf = "images.count";
+	snprintf(d->text, sizeof(d->text), "%u", images_n);
 }
 
 /* --- ACPI tables --- */
