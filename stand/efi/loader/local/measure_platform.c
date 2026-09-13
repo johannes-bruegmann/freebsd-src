@@ -252,6 +252,31 @@ image_item_id(EFI_LOADED_IMAGE *img, unsigned int index, char *id, size_t sz)
 	snprintf(id, sz, "dp/%02x%02x%02x%02x", d[0], d[1], d[2], d[3]);
 }
 
+/*
+ * The same firmware volume file loaded more than once -- illyria: 28 of
+ * 333 images, a driver in its DXE and its SMM copy, with different
+ * contents -- gets an ordinal: fv/4ac99a7c, fv/4ac99a7c~2, fv/4ac99a7c~3,
+ * in handle order. Distinct identities, so each can be in the set.
+ */
+static void
+image_item_unique(struct item *it, unsigned int n)
+{
+	unsigned int i, k = 1;
+	size_t len = strlen(it->id);
+	char base[ITEM_IDLEN];
+
+	memcpy(base, it->id, len + 1);
+	for (i = 0; i < n; i++) {
+		size_t l = strlen(image_items[i].id);
+
+		if (strncmp(image_items[i].id, base, len) == 0 &&
+		    (l == len || image_items[i].id[len] == '~'))
+			k++;
+	}
+	if (k > 1)
+		snprintf(it->id, sizeof(it->id), "%s~%u", base, k);
+}
+
 struct measurement
 measure_images(int argc __unused, CHAR16 *argv[] __unused)
 {
@@ -280,6 +305,7 @@ measure_images(int argc __unused, CHAR16 *argv[] __unused)
 		}
 		it = &image_items[images_n++];
 		image_item_id(img, (unsigned int)i, it->id, sizeof(it->id));
+		image_item_unique(it, images_n - 1);
 		it->size = (uint32_t)img->ImageSize;
 		it->attrs = 0;
 		measurement_sha256(img->ImageBase, (size_t)img->ImageSize,
