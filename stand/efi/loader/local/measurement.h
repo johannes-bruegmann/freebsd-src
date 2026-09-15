@@ -232,13 +232,15 @@ struct measurement	measure_gpt(int argc, CHAR16 *argv[]);
  *                       move it. Read-only use of the TPM: no sealing, no
  *                       key material.
  * measure_nvme          1 iff an NVMe answered the SMART log page
- * measure_tpm_keyfile   1 iff the TPM released the sealed GELI key file
- *                       under its PCR policy and every configured provider
- *                       got it as a preloaded key file (tpm_keyfile.c;
- *                       leafs tpm.keyfile.handle/providers/pcrs of the
- *                       gate). Absent when no leaf is set. The device
- *                       factor of the encrypted root: this TPM, unchanged
- *                       firmware, option ROMs and Secure Boot keys.
+ * measure_tpm_keyfile   1 iff tpm_keyfile_act had the TPM release the
+ *                       sealed GELI key file under its PCR policy and
+ *                       every named provider got it as a preloaded key
+ *                       file (tpm_keyfile.c). Absent when the action did
+ *                       not fire or no leaf was set. Belongs to the gate
+ *                       after the action's (recordlock), with the record
+ *                       claims. The device factor of the encrypted root:
+ *                       this TPM, unchanged firmware, option ROMs and
+ *                       Secure Boot keys.
  */
 struct measurement	measure_record(int argc, CHAR16 *argv[]);
 struct measurement	measure_tpm_keyfile(int argc, CHAR16 *argv[]);

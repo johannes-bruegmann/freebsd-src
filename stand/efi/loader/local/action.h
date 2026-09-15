@@ -50,6 +50,14 @@
  * lock_act      demand the secret loader.trust.<gate>.secret at a prompt
  * unlock_act    demand the compiled-in secret (or the duress secret), three
  *               tries; a duress entry proceeds silently marked
+ * tpm_keyfile_act
+ *               have the TPM release the sealed GELI key file (T0.7) for
+ *               the providers loader.trust.<gate>.tpm.keyfile.providers
+ *               names, under the PCR policy .pcrs, from the object
+ *               .handle; the device factor of the encrypted root. Assumes
+ *               this gate verified kernel, preloads and loader.conf
+ *               first; bind on pass and on unlock, before the record's
+ *               gate. An empty providers leaf unseals and adds nothing
  * tarpit_act    sleep 2^attempts seconds before a prompt; assumes the
  *               coercer cannot afford to wait
  * lockout_act   halt once the attempts reach loader.trust.<gate>.attempts
@@ -116,6 +124,7 @@ extern const struct action	record_act;
 extern const struct action	confirm_act;
 extern const struct action	lock_act;
 extern const struct action	unlock_act;
+extern const struct action	tpm_keyfile_act;
 extern const struct action	tarpit_act;
 extern const struct action	lockout_act;
 extern const struct action	reveal_act;

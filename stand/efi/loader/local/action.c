@@ -38,6 +38,7 @@
 #include "evidence.h"
 #include "clock.h"
 #include "record.h"
+#include "tpm_keyfile.h"
 #include "nvme.h"
 
 #define	LISTLEN	192
@@ -544,6 +545,19 @@ action_unlock(const struct appraisal *a)
 }
 
 /*
+ * The device factor: the TPM releases the sealed GELI key file
+ * (tpm_keyfile.c) for the providers this gate's leafs name. Bound on pass
+ * -- and on the owner's unlock (when_unlocked), so the recovery passphrase
+ * still opens the disk; the ledger carries that unlock either way.
+ */
+static void
+action_tpm_keyfile(const struct appraisal *a)
+{
+	tpm_keyfile_prepare(kenv(a, "tpm.keyfile.handle"),
+	    kenv(a, "tpm.keyfile.providers"), kenv(a, "tpm.keyfile.pcrs"));
+}
+
+/*
  * The console is a lock. console.c getchar() calls local_console_lock()
  * before it hands out a key, so EVERY interactive path of the loader --
  * the key that interrupts the autoboot, Lua's menu and its password
@@ -825,6 +839,7 @@ ACTION_DEFINE(record,   action_record);
 ACTION_DEFINE(confirm,  action_confirm);
 ACTION_DEFINE(lock,     action_lock);
 ACTION_DEFINE(unlock,   action_unlock);
+ACTION_DEFINE(tpm_keyfile, action_tpm_keyfile);
 ACTION_DEFINE(tarpit,   action_tarpit);
 ACTION_DEFINE(lockout,  action_lockout);
 ACTION_DEFINE(reveal,   action_reveal);

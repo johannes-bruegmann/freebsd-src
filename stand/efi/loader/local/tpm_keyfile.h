@@ -17,13 +17,18 @@
  * the TPM releases nothing. Recovery is the disk's other slot (a
  * passphrase alone) and the seed.
  *
- * Configured by three kenv leafs of the kernellock gate
- * (loader.trust.kernellock.tpm.keyfile.*, the stage's loader.trust.conf,
- * manifest-signed): handle (the persistent object, 0x81010001), providers
- * (nda0p1 nda2p1), pcrs (0,2,7 -- the policy the object was sealed
- * under). No leaf: nothing happens and the claim is absent. A leaf that
- * does not parse, a TPM that refuses, a provider that cannot take the
- * file: the claim measures 0 and the diagnosis says why.
+ * Released by an ACTION, tpm_keyfile_act (action.c), so a policy decides
+ * when: bound in the gate whose verdict must stand first (kernellock --
+ * kernel, preloads and loader.conf verified, the PCR bank compared),
+ * fired on pass and on the owner's unlock. The action reads three leafs
+ * of ITS gate, loader.trust.<gate>.tpm.keyfile.*: handle (the persistent
+ * object, 0x81010001), providers (nda0p1 nda2p1; empty: unseal only),
+ * pcrs (0,2,7 -- the policy the object was sealed under). The record's
+ * claims, which need the file, live in a later gate of the same phase
+ * (recordlock): the record loads at its first claim, after the action.
+ * A leaf that does not parse, a TPM that refuses, a provider that cannot
+ * take the file: the claim TpmKeyfile measures 0 and the diagnosis says
+ * why; no leaf at all, or the action never fired: the claim is absent.
  *
  * Not a catalog: internal to the local layer.
  */
@@ -41,7 +46,8 @@ struct tpm_keyfile_state {
 	const char	*reason;	/* what happened, for the diagnosis */
 };
 
-void	tpm_keyfile_prepare(void);		/* once per boot */
+void	tpm_keyfile_prepare(const char *handle, const char *providers,
+	    const char *pcrs);			/* once per boot */
 const struct tpm_keyfile_state *tpm_keyfile_state(void);
 
 #endif /* _LOCAL_TPM_KEYFILE_H_ */
