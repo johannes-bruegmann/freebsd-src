@@ -20,6 +20,7 @@
 #include "clock.h"
 #include "record.h"
 #include "tpm.h"
+#include "tpm_keyfile.h"
 #include "nvme.h"
 
 struct measurement
@@ -159,6 +160,19 @@ measure_pcr(int argc __unused, CHAR16 *argv[] __unused)
 }
 
 struct measurement
+measure_tpm_keyfile(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "TpmKeyfile", .type = MEAS_BYTE };
+	const struct tpm_keyfile_state *s = tpm_keyfile_state();
+
+	if (!s->configured)
+		return (m);
+	m.present = true;
+	m.value.byte = (s->providers > 0 && s->added == s->providers) ? 1 : 0;
+	return (m);
+}
+
+struct measurement
 measure_nvme(int argc __unused, CHAR16 *argv[] __unused)
 {
 	struct measurement m = { .name = "NvmePresent", .type = MEAS_BYTE,
@@ -264,6 +278,18 @@ diagnose_tpm(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 		    tc.restart_count, tc.safe ? 1 : 0);
 	else
 		snprintf(d->text, sizeof(d->text), "none(%s)", tpm_last_error());
+}
+
+void
+diagnose_tpm_keyfile(int argc __unused, CHAR16 *argv[] __unused,
+    struct diagnosis *d)
+{
+	const struct tpm_keyfile_state *s = tpm_keyfile_state();
+
+	d->leaf = "tpm.keyfile";
+	snprintf(d->text, sizeof(d->text), "unsealed=%u,providers=%u,added=%u,%s",
+	    s->unsealed ? 1 : 0, s->providers, s->added,
+	    s->reason != NULL ? s->reason : "not asked");
 }
 
 void

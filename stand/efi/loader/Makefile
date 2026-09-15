@@ -40,6 +40,7 @@ SRCS=	autoload.c \
 	record.c \
 	geli_keys.c \
 	tpm.c \
+	tpm_keyfile.c \
 	nvme.c \
 	measure_time.c \
 	measure_record.c \

@@ -55,7 +55,14 @@ struct _EFI_TCG2_PROTOCOL {
 #define	TPM_RC_SUCCESS		0x000
 #define	TPM_RS_PW		0x40000009u
 #define	TPM_RH_OWNER		0x40000001u
+#define	TPM_RH_NULL		0x40000007u
+#define	TPM_SE_POLICY		0x01
+#define	TPM_ALG_NULL		0x0010
 #define	TPM_ALG_SHA256		0x000b
+#define	TPM_CC_Unseal		0x0000015eu
+#define	TPM_CC_FlushContext	0x00000165u
+#define	TPM_CC_StartAuthSession	0x00000176u
+#define	TPM_CC_PolicyPCR	0x0000017fu
 #define	TPM_CC_NV_DefineSpace	0x0000012au
 #define	TPM_CC_NV_Increment	0x00000134u
 #define	TPM_CC_NV_Read		0x0000014eu
@@ -187,7 +194,10 @@ submit(struct bb *cmd, uint8_t *resp, size_t rcap, size_t *rlen)
 		return (false);
 	}
 	if (rc != TPM_RC_SUCCESS) {
-		last_error = "TPM_RC error";
+		static char rcbuf[24];
+
+		snprintf(rcbuf, sizeof(rcbuf), "TPM_RC 0x%x", rc);
+		last_error = rcbuf;
 		return (false);
 	}
 	*rlen = sz;
@@ -328,4 +338,115 @@ tpm_nv_define_counter(void)
 	put16(&b, 8);				/* dataSize */
 	finish(&b, TPM_ST_SESSIONS, TPM_CC_NV_DefineSpace);
 	return (submit(&b, r, sizeof(r), &n));
+}
+
+
+/* --- unsealing under a PCR policy (tpm_keyfile.c) --- */
+
+/* A policy session: unbound, unsalted, no parameter encryption. */
+static bool
+policy_session_start(uint32_t *session)
+{
+	uint8_t c[64], r[64];
+	struct bb b = { c, 10, sizeof(c) };
+	size_t n;
+	int i;
+
+	put32(&b, TPM_RH_NULL);			/* tpmKey: no salt */
+	put32(&b, TPM_RH_NULL);			/* bind: none */
+	put16(&b, 16);				/* nonceCaller */
+	for (i = 0; i < 16; i++)
+		put8(&b, 0);
+	put16(&b, 0);				/* encryptedSalt: empty */
+	put8(&b, TPM_SE_POLICY);
+	put16(&b, TPM_ALG_NULL);		/* symmetric: none */
+	put16(&b, TPM_ALG_SHA256);		/* authHash */
+	finish(&b, TPM_ST_NO_SESSIONS, TPM_CC_StartAuthSession);
+	if (!submit(&b, r, sizeof(r), &n) || n < 10 + 4)
+		return (false);
+	*session = get32(r + 10);
+	return (true);
+}
+
+/* PolicyPCR: the TPM folds its current PCRs of the selection into the
+ * session's policy digest (pcrDigest empty: computed by the TPM). */
+static bool
+policy_pcr(uint32_t session, uint32_t mask)
+{
+	uint8_t c[64], r[64];
+	struct bb b = { c, 10, sizeof(c) };
+	size_t n;
+
+	put32(&b, session);
+	put16(&b, 0);				/* pcrDigest: the TPM's */
+	put32(&b, 1);				/* TPML_PCR_SELECTION: count */
+	put16(&b, TPM_ALG_SHA256);
+	put8(&b, 3);				/* sizeofSelect */
+	put8(&b, mask & 0xff);
+	put8(&b, (mask >> 8) & 0xff);
+	put8(&b, (mask >> 16) & 0xff);
+	finish(&b, TPM_ST_NO_SESSIONS, TPM_CC_PolicyPCR);
+	return (submit(&b, r, sizeof(r), &n));
+}
+
+static void
+flush_context(uint32_t handle)
+{
+	uint8_t c[16], r[32];
+	struct bb b = { c, 10, sizeof(c) };
+	size_t n;
+
+	put32(&b, handle);
+	finish(&b, TPM_ST_NO_SESSIONS, TPM_CC_FlushContext);
+	(void)submit(&b, r, sizeof(r), &n);
+}
+
+/* Unseal with the policy session; the session is not continued, the TPM
+ * closes it with the command. The object has no auth value: empty HMAC. */
+static bool
+unseal(uint32_t session, uint32_t handle, uint8_t *out, size_t cap,
+    size_t *len)
+{
+	uint8_t c[64], r[256];
+	struct bb b = { c, 10, sizeof(c) };
+	size_t n;
+	uint32_t psize;
+	uint16_t sz;
+
+	put32(&b, handle);			/* itemHandle */
+	put32(&b, 4 + 2 + 1 + 2);		/* authorizationSize */
+	put32(&b, session);
+	put16(&b, 0);				/* nonce: empty */
+	put8(&b, 0);				/* sessionAttributes */
+	put16(&b, 0);				/* hmac: empty */
+	finish(&b, TPM_ST_SESSIONS, TPM_CC_Unseal);
+	if (!submit(&b, r, sizeof(r), &n) || n < 10 + 4 + 2)
+		return (false);
+	/* parameterSize(4) outData(TPM2B: size(2) bytes) auth response */
+	psize = get32(r + 10);
+	sz = get16(r + 14);
+	if (psize < 2 + (uint32_t)sz || sz == 0 || sz > cap || 16 + sz > n) {
+		last_error = "bad unseal response";
+		explicit_bzero(r, sizeof(r));
+		return (false);
+	}
+	memcpy(out, r + 16, sz);
+	*len = sz;
+	explicit_bzero(r, sizeof(r));
+	return (true);
+}
+
+bool
+tpm_unseal(uint32_t handle, uint32_t pcr_mask, uint8_t *out, size_t cap,
+    size_t *len)
+{
+	uint32_t s;
+
+	if (!policy_session_start(&s))
+		return (false);
+	if (!policy_pcr(s, pcr_mask) || !unseal(s, handle, out, cap, len)) {
+		flush_context(s);
+		return (false);
+	}
+	return (true);
 }
