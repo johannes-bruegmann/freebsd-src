@@ -25,6 +25,7 @@
 #include "policy.h"
 #include "evidence.h"
 #include "record.h"
+#include "tpm_keyfile.h"
 
 /* --- firing predicates (open catalog) --- */
 
@@ -152,8 +153,10 @@ local_run(enum phase ph, int argc, CHAR16 *argv[])
 
 	evidence_args(argc, argv);
 	local_console_trusted(1);	/* the gates' dialogs are their own locks */
-	if (ph == PHASE_KERNEL)
+	if (ph == PHASE_KERNEL) {
+		tpm_keyfile_prepare();	/* the TPM's key file, before any key */
 		(void)record_load();	/* keys exist once the passphrase was typed */
+	}
 	for (p = phase_policies(ph); p->gate != NULL; p++)
 		policy_run(ph, p, argc, argv);
 	for (p = phase_policies(post); p->gate != NULL; p++)

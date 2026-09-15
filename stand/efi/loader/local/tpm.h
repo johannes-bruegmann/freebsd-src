@@ -5,15 +5,20 @@
  */
 
 /*
- * tpm.h -- read-only use of a TPM 2.0 through the firmware's TCG2 protocol.
+ * tpm.h -- a TPM 2.0 through the firmware's TCG2 protocol.
  *
- * No sealing, no keys, no driver stack: EFI_TCG2_PROTOCOL.SubmitCommand
+ * No driver stack: EFI_TCG2_PROTOCOL.SubmitCommand
  * carries raw TPM2 commands, the firmware owns the transport (Intel PTT on
  * this laptop). Three things are read: ReadClock (resetCount = a hardware
  * boot counter no software resets; clock = a monotonic persisted
  * millisecond clock), the SHA256 bank of PCR 0..7 (the firmware's own
  * measured boot), and elvboot's NV counter index, which the loader
- * increments once per boot (NV_Increment cannot be undone).
+ * increments once per boot (NV_Increment cannot be undone). One thing
+ * is unsealed (tpm_unseal, since 15.09.2026): a persistent sealed object
+ * under a PCR policy -- the GELI key file of tpm_keyfile.c. The policy
+ * session is the TPM's own (PolicyPCR against its current PCRs); the
+ * loader never sees a policy digest or an auth value, the object carries
+ * no auth value by design, so an empty HMAC authorizes.
  *
  * Assumes: a TPM 2.0 is enabled in Setup and the firmware publishes the
  * TCG2 protocol. Absent TPM -> every call reports failure and the
@@ -49,6 +54,10 @@ bool	tpm_pcr_bank(uint8_t out[static SHA256_DIGEST_LENGTH]);	/* sha256 over PCR0
 bool	tpm_nv_counter_read(uint64_t *);
 bool	tpm_nv_counter_increment(void);
 bool	tpm_nv_define_counter(void);
+/* Unseal <handle> under a policy session bound to the PCRs of <pcr_mask>
+ * (bit i = PCR i, SHA256 bank); the bytes go to out (at most cap). */
+bool	tpm_unseal(uint32_t handle, uint32_t pcr_mask, uint8_t *out, size_t cap,
+	    size_t *len);
 const char *tpm_last_error(void);
 
 #endif /* _LOCAL_TPM_H_ */

@@ -232,8 +232,16 @@ struct measurement	measure_gpt(int argc, CHAR16 *argv[]);
  *                       move it. Read-only use of the TPM: no sealing, no
  *                       key material.
  * measure_nvme          1 iff an NVMe answered the SMART log page
+ * measure_tpm_keyfile   1 iff the TPM released the sealed GELI key file
+ *                       under its PCR policy and every configured provider
+ *                       got it as a preloaded key file (tpm_keyfile.c;
+ *                       leafs tpm.keyfile.handle/providers/pcrs of the
+ *                       gate). Absent when no leaf is set. The device
+ *                       factor of the encrypted root: this TPM, unchanged
+ *                       firmware, option ROMs and Secure Boot keys.
  */
 struct measurement	measure_record(int argc, CHAR16 *argv[]);
+struct measurement	measure_tpm_keyfile(int argc, CHAR16 *argv[]);
 struct measurement	measure_counter_step(int argc, CHAR16 *argv[]);
 struct measurement	measure_chain(int argc, CHAR16 *argv[]);
 struct measurement	measure_lastboot_gap(int argc, CHAR16 *argv[]);
@@ -312,6 +320,7 @@ struct measurement	measure_ledger_unlocked(int argc, CHAR16 *argv[]);
  *                              last boot, or unknown
  * diagnose_tpm                 tpm: what the TPM answered, or none(<error>)
  * diagnose_nvme                nvme: what the SMART page answered, or none
+ * diagnose_tpm_keyfile         tpm.keyfile: unsealed, providers, added, why
  * diagnose_time_boot           time.boot.ms: entry-to-now in milliseconds
  * diagnose_time_prompt         time.prompt: dwell, cadence, attempts
  * diagnose_time_rtc_tsc        time.now: RTC, TSC and ticks per millisecond
@@ -332,6 +341,7 @@ void	diagnose_counter_step(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_lastboot_gap(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_tpm(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_nvme(int argc, CHAR16 *argv[], struct diagnosis *);
+void	diagnose_tpm_keyfile(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_time_boot(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_time_prompt(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_time_rtc_tsc(int argc, CHAR16 *argv[], struct diagnosis *);
