@@ -108,6 +108,11 @@ struct policy {
  *                 only SILENT actions here: the point of duress is that the
  *                 coercer sees nothing.
  *   when_prompted an interactive action ran in this or an earlier phase
+ *   when_unlocked THIS gate was unlocked in this boot: unlock_act set
+ *                 loader.trust.<gate>.unlocked after the recovery (or
+ *                 duress) passphrase. Binds what a failed gate may still
+ *                 do once the owner answered -- the verdict stays FAIL,
+ *                 the ledger keeps the unlock
  */
 bool	when_always(const struct appraisal *);
 bool	when_fail(const struct appraisal *);
@@ -117,6 +122,7 @@ bool	when_maybe(const struct appraisal *);
 bool	when_tainted(const struct appraisal *);
 bool	when_duress(const struct appraisal *);
 bool	when_prompted(const struct appraisal *);
+bool	when_unlocked(const struct appraisal *);
 
 /*
  * The bindings of a policy are one POLICY_TABLE_DEFINE(name, binding1, ...):

@@ -15,6 +15,7 @@
  */
 
 #include <stand.h>
+#include <string.h>
 #include <bootstrap.h>			/* local_console_trusted */
 
 #include <efi.h>			/* CHAR16 */
@@ -25,7 +26,6 @@
 #include "policy.h"
 #include "evidence.h"
 #include "record.h"
-#include "tpm_keyfile.h"
 
 /* --- firing predicates (open catalog) --- */
 
@@ -99,6 +99,17 @@ when_prompted(const struct appraisal *a __unused)
 	return (evidence()->prompted > 0);
 }
 
+bool
+when_unlocked(const struct appraisal *a)
+{
+	const char *v;
+	char name[64];
+
+	gate_var(a->gate, "unlocked", name, sizeof(name));
+	v = getenv(name);
+	return (v != NULL && strcmp(v, "1") == 0);
+}
+
 /* --- execution --- */
 
 void
@@ -153,10 +164,12 @@ local_run(enum phase ph, int argc, CHAR16 *argv[])
 
 	evidence_args(argc, argv);
 	local_console_trusted(1);	/* the gates' dialogs are their own locks */
-	if (ph == PHASE_KERNEL) {
-		tpm_keyfile_prepare();	/* the TPM's key file, before any key */
-		(void)record_load();	/* keys exist once the passphrase was typed */
-	}
+	/*
+	 * The record loads at its first claim (record_state), not here: a
+	 * gate before the record's may still act on the key material -- the
+	 * TPM key file (tpm_keyfile_act) -- and the derivation is one attempt
+	 * per boot.
+	 */
 	for (p = phase_policies(ph); p->gate != NULL; p++)
 		policy_run(ph, p, argc, argv);
 	for (p = phase_policies(post); p->gate != NULL; p++)

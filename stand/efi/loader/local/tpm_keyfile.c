@@ -7,10 +7,11 @@
 /*
  * tpm_keyfile.c -- the GELI key file the TPM releases (tpm_keyfile.h).
  *
- * Runs at the start of the KERNEL phase, before record_load(): the kernel
- * is loaded, so a buffer can become a preloaded file (file_addbuf), and
- * the record's key derivation (geli_keys.c) has not run yet, so it sees
- * the file. The bytes live in the loader only as long as it takes to copy
+ * Runs as the action of a KERNEL-phase gate, once: the kernel is loaded,
+ * so a buffer can become a preloaded file (file_addbuf), and the record's
+ * key derivation (geli_keys.c) has not run yet -- it runs at the first
+ * record claim, in a gate bound after the action's -- so it sees the
+ * file. The bytes live in the loader only as long as it takes to copy
  * them into the preload area; the kernel's g_eli reads the same file.
  */
 
@@ -21,22 +22,10 @@
 #include "tpm.h"
 #include "tpm_keyfile.h"
 
-#define	TPM_KEYFILE_GATE	"kernellock"
 #define	TPM_KEYFILE_MAX		128	/* a sealed blob is at most 128 bytes */
 #define	TPM_KEYFILE_PROVLEN	16
 
 static struct tpm_keyfile_state st;
-
-/* The value of loader.trust.<gate>.tpm.keyfile.<name>, or NULL. */
-static const char *
-leaf(const char *name)
-{
-	static char buf[96];
-
-	snprintf(buf, sizeof(buf), "loader.trust." TPM_KEYFILE_GATE
-	    ".tpm.keyfile.%s", name);
-	return (getenv(buf));
-}
 
 /* "0,2,7" -> bit mask of the PCR selection (SHA256 bank, 24 PCRs). */
 static bool
@@ -81,12 +70,12 @@ next_index(const char *prov)
 }
 
 void
-tpm_keyfile_prepare(void)
+tpm_keyfile_prepare(const char *h, const char *p, const char *pc)
 {
 	static bool tried;
 	uint8_t secret[TPM_KEYFILE_MAX];
 	char prov[TPM_KEYFILE_PROVLEN], type[TPM_KEYFILE_PROVLEN + 24];
-	const char *h, *p, *pc, *q;
+	const char *q;
 	char *end;
 	unsigned long handle;
 	uint32_t mask;
@@ -95,9 +84,6 @@ tpm_keyfile_prepare(void)
 	if (tried)
 		return;
 	tried = true;
-	h = leaf("handle");
-	p = leaf("providers");
-	pc = leaf("pcrs");
 	if (h == NULL && p == NULL && pc == NULL) {
 		st.reason = "not configured";
 		return;
