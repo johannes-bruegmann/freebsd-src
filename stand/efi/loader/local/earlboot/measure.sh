@@ -200,6 +200,26 @@ measure_smart_step() {
 	fi
 }
 
+# measure_smart_quiet <nvmeN> -- 1 iff no power cycle happened without a
+# recorded boot: the controller's power-cycle count equals the one
+# book_act recorded at this boot ($ELV_STATE/smart-<nvmeN>), and the boot
+# the book last recorded is the one the loader published (its counter is
+# the book's last line). The runtime twin of measure_smart_step -- that one
+# belongs to the boot (exactly one step since the previous boot), this one
+# to the day (none since the boot): a day without a reboot passes, a power
+# cycle that never reached earlboot fails. Absent without a book entry.
+measure_smart_quiet() {
+	local now last c
+	now=$(measure_smart "$1")
+	[ -n "$now" ] || return 0
+	[ -f "$ELV_STATE/smart-$1" ] && [ -f "$ELV_STATE/book" ] || return 0
+	last=$($CAT "$ELV_STATE/smart-$1")
+	c=$($KENV -q "loader.trust.$ELV_GATE_LOADER.counter" 2>/dev/null) || c=""
+	if [ "$now" != "$last" ]; then printf '0\n'; return 0; fi
+	if [ -n "$c" ] && [ "$c" != "$($TAIL -1 "$ELV_STATE/book" | $CUT -d' ' -f1)" ]; then printf '0\n'; return 0; fi
+	printf '1\n'
+}
+
 # measure_answer <gate> -- the sentinel's salted answer hash (classification
 # is the expectation's value: one claim per answer class)
 measure_answer() {
