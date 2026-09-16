@@ -48,9 +48,19 @@ compare_media_act() {
 }
 
 # sentinel_act <gate> -- the runtime watchdog: no persisted appraisal of
-# this boot means earlboot never ran (or was removed) -- itself a finding
+# THIS boot means earlboot never ran (or was removed) -- itself a finding.
+# earlboot persists under the name of ITS gate (appraisal-custody), which
+# elvbootd does not know; so the question is whether any appraisal is
+# younger than the kernel's boot time (kern.boottime). Illyria 16.09.: the
+# old test looked for appraisal-<loader gate> and failed every boot.
 sentinel_act() {
-	[ -f "$ELV_STATE/appraisal-$ELV_GATE_LOADER" ] && return 0
+	local boot="" f
+	boot=$($SYSCTL -n kern.boottime 2>/dev/null | $SED 's/.*sec = \([0-9]*\).*/\1/')
+	case "$boot" in ''|*[!0-9]*) boot=0 ;; esac
+	for f in "$ELV_STATE"/appraisal-*; do
+		[ -f "$f" ] || continue
+		[ "$($STAT -f %m "$f" 2>/dev/null || echo 0)" -ge "$boot" ] && return 0
+	done
 	GATE_VERDICT=fail; FAILED="$FAILED earlboot-missing"
 	spool_act "$1"
 	mark_act "$1"
