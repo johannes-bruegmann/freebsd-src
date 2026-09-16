@@ -168,7 +168,7 @@ measure_tpm_keyfile(int argc __unused, CHAR16 *argv[] __unused)
 	if (!s->configured)
 		return (m);
 	m.present = true;
-	m.value.byte = (s->providers > 0 && s->added == s->providers) ? 1 : 0;
+	m.value.byte = (s->unsealed && s->added == s->providers) ? 1 : 0;
 	return (m);
 }
 
