@@ -13,8 +13,8 @@
  * ledger is the input of the KERNEL-phase providers (measure_ledger_*,
  * measure_time_prompt, measure_attempts) and of the handover word; it is
  * never published in clear -- the taint bit in particular reaches
- * earlboot only inside the word. The word's duress bit stays 0: the
- * loader compares no password, duress is earlboot's (JB 16.09.).
+ * earlboot only inside the word. The duress bit is the TPM's verdict
+ * (tpm_keyfile.h), never a hash comparison in the loader (JB 16.09.).
  *
  * Not a catalog: internal to the local layer.
  */
@@ -48,6 +48,7 @@ struct evidence {
 	unsigned int		 attempts;	/* hidden lines read, all prompts */
 	uint64_t		 prompt_ms;	/* summed dwell at prompts */
 	uint64_t		 cadence_ms;	/* longest pause between two keys */
+	bool			 duress;	/* the TPM opened the duress object */
 	bool			 taint;		/* taint_act or a failed gate */
 	bool			 silence;	/* silence_act: no publish */
 	int			 argc;		/* the LoadOptions, kept from BOOT */
@@ -62,6 +63,7 @@ void	evidence_note_appraisal(unsigned int phase, const struct appraisal *);
 void	evidence_note_action(const char *name);	/* counts the interactive ones */
 void	evidence_note_attempt(void);
 void	evidence_note_prompt(uint64_t dwell_ms, uint64_t cadence_ms);
+void	evidence_set_duress(void);
 void	evidence_set_taint(void);
 void	evidence_set_silence(void);
 

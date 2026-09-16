@@ -16,8 +16,9 @@
  * publish is where the results reach kenv (loader.trust.<gate>.*); every other
  * action reads what it needs from the appraisal directly, not from kenv.
  * Interactive actions leave their facts in the ledger (evidence.h): attempts,
- * dwell, cadence. No action compares a password (geli_open.h). Under
- * silence (silence_act) nothing is
+ * dwell, cadence. The passphrase of the disk is the TPM's to judge
+ * (tpm_keyfile.h); the one hash an action compares, unlock_act's, opens
+ * nothing. Under silence (silence_act) nothing is
  * published to the console or kenv any more -- the handover word remains
  * the only channel, and it is opaque.
  */
@@ -457,6 +458,43 @@ action_confirm(const struct appraisal *a)
 		halt_boot("aborted");
 }
 
+/*
+ * The informed decision: a gate fell, the owner says "I know, go on".
+ * Reports which claims failed, then asks for the one passphrase the
+ * loader still holds a hash of (LOADER_TRUST_UNLOCK_SECRET, site.mk):
+ * three tries, then the boot halts. The hash opens nothing and tells no
+ * second role apart -- that is why it may live in the binary (JB
+ * 16.09.). Without a hash compiled in the action reports and continues,
+ * so an unprovisioned build cannot brick. Bind it where a deviation is
+ * worth a decision: the chain on the medium after a boot from the
+ * reserve card, a moved inventory set.
+ */
+static void
+action_unlock(const struct appraisal *a)
+{
+	char failed[LISTLEN], got[128], hash[2 * SHA256_DIGEST_LENGTH + 1];
+	int tries;
+
+	list_by_verdict(a, VERDICT_FAIL, failed, sizeof(failed));
+	printf("\n*** %s: verification failed [%s] ***\n", a->gate->name, failed);
+#ifndef LOADER_TRUST_UNLOCK_SECRET
+	printf("no unlock secret compiled in -- continuing.\n");
+	return;
+#else
+	for (tries = 0; tries < 3; tries++) {
+		printf("%s: unlock passphrase: ", a->gate->name);
+		readsecret(got, sizeof(got));
+		printf("\n");
+		sha256_hex(got, strlen(got), hash);
+		explicit_bzero(got, sizeof(got));
+		if (strcmp(hash, LOADER_TRUST_UNLOCK_SECRET) == 0)
+			return;
+		printf("wrong.\n");
+	}
+	halt_boot("locked");
+#endif
+}
+
 /* Sleep 2^attempts seconds (capped at 64) before whatever comes next. */
 static void
 action_tarpit(const struct appraisal *a __unused)
@@ -611,9 +649,10 @@ action_handover(const struct appraisal *a)
 		return;
 	if (e->taint)
 		flags |= RECORD_F_TAINT;
+	if (e->duress)
+		flags |= RECORD_F_DURESS;	/* the TPM's verdict (tpm_keyfile.c) */
 	if (e->prompted > 0)
 		flags |= RECORD_F_PROMPTED;
-	/* RECORD_F_DURESS stays clear: the loader compares no password */
 	evidence_digest(d);
 	hex_of(d, sizeof(d), hex);
 	snprintf(msg, sizeof(msg), "%s|%llu|%u", hex,
@@ -662,6 +701,7 @@ ACTION_DEFINE(prompt,   action_prompt);
 ACTION_DEFINE(sentinel, action_sentinel);
 ACTION_DEFINE(record,   action_record);
 ACTION_DEFINE(confirm,  action_confirm);
+ACTION_DEFINE(unlock,   action_unlock);
 ACTION_DEFINE(tarpit,   action_tarpit);
 ACTION_DEFINE(reveal,   action_reveal);
 ACTION_DEFINE(taint,    action_taint);

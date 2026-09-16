@@ -7,8 +7,10 @@
 /*
  * geli_open.c -- the one dialog of the boot (geli_open.h).
  *
- * A typed line is applied, never cached: it goes into the derivation
- * (geli_keys_prepare) and is wiped. What remains are the user keys of
+ * A typed line is applied, never cached: it goes to the TPM first, whose
+ * sealed objects carry the passphrase as their auth value
+ * (tpm_keyfile.c: the owner's, then the duress one), then into the
+ * derivation (geli_keys_prepare), and is wiped. What remains are the user keys of
  * the providers that opened, in geliboot's key buffer, for the record
  * (geli_ikm_digest) and for the kernel (geli_export_key_buffer). The
  * empty line is a passphrase too: a slot with key files only (geli
@@ -19,6 +21,7 @@
 #include <string.h>
 
 #include "action.h"			/* readsecret, halt_boot */
+#include "tpm_keyfile.h"
 #include "geli_keys.h"
 #include "geli_open.h"
 
@@ -58,6 +61,7 @@ geli_open_ensure(void)
 		printf("\nGELI passphrase: ");
 		readsecret(pw, sizeof(pw));
 		printf("\n");
+		tpm_keyfile_prepare(pw);	/* the TPM checks the line and releases its file */
 		if (geli_keys_prepare(pw) > 0) {
 			explicit_bzero(pw, sizeof(pw));
 			opened = true;

@@ -165,6 +165,9 @@ LIBEFI32=	${BOOTOBJ}/efi/libefi32/libefi.a
 DPADD=		${LDR_INTERP32} ${LIBEFI32} ${LIBSA32} ${LDSCRIPT}
 LDADD=		${LDR_INTERP32} ${LIBEFI32} ${LIBSA32}
 .else
+# the salted TPM session (local/tpm.c): RSA-OAEP from BearSSL
+CFLAGS.tpm.c+=	-I${SRCTOP}/contrib/bearssl/inc
+
 DPADD=		${LDR_INTERP} ${LIBEFI} ${LIBSAFDT} ${LIBEFI_FDT} ${LIBSA} ${LDSCRIPT}
 LDADD=		${LDR_INTERP} ${LIBEFI} ${LIBSAFDT} ${LIBEFI_FDT} ${LIBSA}
 .endif

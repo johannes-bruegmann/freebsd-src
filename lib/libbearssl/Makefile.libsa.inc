@@ -70,8 +70,11 @@ SRCS+= \
 
 SRCS+= \
 	rsa/rsa_default_pkcs1_vrfy.c \
+	rsa/rsa_i31_oaep_encrypt.c \
+	hash/mgf1.c \
 	rsa/rsa_i31_pkcs1_vrfy.c \
 	rsa/rsa_i31_pub.c \
+	rsa/rsa_oaep_pad.c \
 	rsa/rsa_i62_pkcs1_vrfy.c \
 	rsa/rsa_i62_pub.c \
 	rsa/rsa_pkcs1_sig_unpad.c \

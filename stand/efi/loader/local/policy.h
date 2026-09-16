@@ -105,10 +105,13 @@ struct policy {
  *   when_tainted  the evidence ledger carries a taint (taint_act fired, or
  *                 an earlier phase failed)
  *   when_prompted an interactive action ran in this or an earlier phase
+ *   when_duress   the TPM opened the duress object for the typed line
+ *                 (tpm_keyfile.h). Bind only SILENT actions here: the
+ *                 point of duress is that the coercer sees nothing.
  *
- * No predicate asks whether a password matched: the loader compares none
- * (geli_open.h). Duress is classified behind the encrypted root, by
- * earlboot's answer gates, never here (JB 16.09.).
+ * No predicate asks whether a password matched against a hash: the TPM
+ * decides (tpm_keyfile.h), and the one hash left, unlock_act's, opens
+ * nothing -- it lets a boot with a deviation go on (JB 16.09.).
  */
 bool	when_always(const struct appraisal *);
 bool	when_fail(const struct appraisal *);
@@ -117,6 +120,7 @@ bool	when_skipped(const struct appraisal *);
 bool	when_maybe(const struct appraisal *);
 bool	when_tainted(const struct appraisal *);
 bool	when_prompted(const struct appraisal *);
+bool	when_duress(const struct appraisal *);
 
 /*
  * The bindings of a policy are one POLICY_TABLE_DEFINE(name, binding1, ...):
