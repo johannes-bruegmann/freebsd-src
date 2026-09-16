@@ -9,22 +9,23 @@
  * its encrypted root: libsa's geli tastes nothing, no user key exists, and
  * the record (record.c) has no keying material. Here the loader tastes the
  * GELI partitions of the disks it sees itself, with the passphrase the
- * configuration already asked for (kern.geom.eli.passphrase, set by the
- * Lua prompt of geom_eli_passphrase_prompt) and the key files loader.conf
- * preloaded (<prov>:geli_keyfile<n>) -- exactly the material the kernel
- * would use -- and stops at the first key. The taste is its own
- * (keys_taste): the providers the kernel attaches at boot, not only those
- * the loader may attach. So is the derivation (keys_derive): the kernel
- * feeds a provider its own key files, <prov>:geli_keyfile<n>, and nothing
- * else; the loader cannot tell disk0p1 from nda0p1, so it tries each
- * provider's set in turn, then the passphrase alone, with the PBKDF2 part
- * computed once. Feeding every preloaded key file to every partition, as
- * the first version did, is a wrong key (11.09.: "Bad GELI key" twice per
- * attempt, and the record called the taste on every claim -- now once per
- * boot). No prompt ever comes from here: without a cached passphrase
- * nothing is tasted and the record stays absent, reported. The derived key
- * travels to the kernel in the keybuf like any loader key, so the kernel
- * skips its own PBKDF2: the seconds spent here are not spent twice. Whole
+ * dialog hands over (geli_open.c -- typed for this attempt, applied,
+ * wiped; never cached in the environment) and the key files loader.conf
+ * and the TPM preloaded (<prov>:geli_keyfile<n>) -- exactly the material
+ * the kernel would use -- and derives a key for EVERY provider that opens
+ * (the kernel needs each one; the record takes the first). The taste is
+ * its own (keys_taste): the providers the kernel attaches at boot, not
+ * only those the loader may attach. So is the derivation (keys_derive):
+ * the kernel feeds a provider its own key files, <prov>:geli_keyfile<n>,
+ * and nothing else; the loader cannot tell disk0p1 from nda0p1, so it
+ * tries each provider's set in turn, then the passphrase alone, with the
+ * PBKDF2 part computed once. Feeding every preloaded key file to every
+ * partition, as the first version did, is a wrong key (11.09.: "Bad GELI
+ * key" twice per attempt). Every call is a fresh attempt: a wrong line
+ * costs one derivation and nothing sticks (16.09.: a typo cached by the
+ * Lua prompt poisoned the one attempt per boot). No prompt comes from
+ * here. The derived keys travel to the kernel in the keybuf like any
+ * loader key, so the kernel skips its own PBKDF2 and asks nothing. Whole
  * disks are opened, never partitions, so devopen's own taste-and-prompt
  * path is not entered.
  */
@@ -40,7 +41,7 @@
 #include <geom/eli/pkcs5v2.h>
 
 #include "geliboot.h"
-#include "record.h"
+#include "geli_keys.h"
 
 #define	KEYS_DISKS	8		/* disk0 .. disk7 */
 
@@ -50,7 +51,7 @@ struct taste_ctx {
 	uint64_t	 base;		/* partition start, bytes */
 	const char	*passphrase;
 	int		 unit;
-	bool		 found;
+	unsigned int	 opened;	/* GELI partitions whose key derived */
 	bool		 tasted;	/* a GELI partition was seen */
 	bool		 badkey;	/* ... and did not open */
 	unsigned int	 parts;		/* partitions seen on this disk */
@@ -283,8 +284,6 @@ keys_partition(void *arg, const char *partname __unused,
 	daddr_t lastsector;
 	char name[16];
 
-	if (c->found)
-		return (1);
 	c->parts++;
 	pc = *c;
 	pc.base = part->start * c->secsz;
@@ -295,11 +294,11 @@ keys_partition(void *arg, const char *partname __unused,
 	c->gelis++;
 	snprintf(name, sizeof(name), "disk%dp%d", c->unit, part->index);
 	if (keys_derive(&md, c->passphrase, name, lastsector))
-		c->found = true;
+		c->opened++;
 	else
 		c->badkey = true;
 	explicit_bzero(&md, sizeof(md));
-	return (c->found ? 1 : 0);
+	return (0);
 }
 
 /*
@@ -308,41 +307,19 @@ keys_partition(void *arg, const char *partname __unused,
  * One attempt per boot once a passphrase is there: every record claim
  * asks, the disks and the PBKDF2 cost are paid once (11.09.).
  */
-int
-geli_keys_prepare(void)
+unsigned int
+geli_keys_prepare(const char *passphrase)
 {
-	static bool tried;
 	struct taste_ctx c;
 	struct ptable *table;
 	uint64_t mediasz;
 	char devname[16];
 	int unit;
 
-	if (tried)
-		return (0);
 	memset(&c, 0, sizeof(c));
 	keys_seen[0] = '\0';
-	c.passphrase = getenv("kern.geom.eli.passphrase");
-	if (c.passphrase == NULL) {
-		snprintf(keys_reason, sizeof(keys_reason),
-		    "no cached GELI passphrase (kern.geom.eli.passphrase)");
-		return (0);
-	}
-	tried = true;
-	{
-		/* its shape only: control characters and trailing blanks */
-		const unsigned char *q;
-		unsigned int ctl = 0;
-		size_t len = strlen(c.passphrase);
-
-		for (q = (const unsigned char *)c.passphrase; *q != '\0'; q++)
-			if (*q < 0x20 || *q == 0x7f)
-				ctl++;
-		keys_note("pw:ctl=%u,trail=%u", ctl, len > 0 &&
-		    (c.passphrase[len - 1] == ' ' || c.passphrase[len - 1] == '\t')
-		    ? 1U : 0U);
-	}
-	for (unit = 0; unit < KEYS_DISKS && !c.found; unit++) {
+	c.passphrase = passphrase;
+	for (unit = 0; unit < KEYS_DISKS; unit++) {
 		snprintf(devname, sizeof(devname), "disk%d:", unit);
 		c.fd = open(devname, O_RDONLY);
 		if (c.fd < 0)
@@ -368,10 +345,11 @@ geli_keys_prepare(void)
 		close(c.fd);
 	}
 	snprintf(keys_reason, sizeof(keys_reason), "%s [%s]",
-	    c.found ? "GELI user key derived" :
+	    c.opened > 0 && !c.badkey ? "GELI user keys derived" :
+	    c.opened > 0 ? "GELI user key derived, a provider did not open" :
 	    c.badkey ? "GELI partition seen, passphrase and key files did not open it" :
 	    c.tasted ? "GELI partition seen, no key" :
 	    "no GELI partition seen",
 	    keys_seen[0] != '\0' ? keys_seen : "no disk opened");
-	return (c.found ? 1 : 0);
+	return (c.opened);
 }

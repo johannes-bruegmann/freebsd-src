@@ -26,9 +26,9 @@ The catalogs (parsed by elebake from the headers here):
                   howto flags, guarded kenv, preload verification,
                   the soft PCR, the ledger (measure_kernel.c)
   action.h        the responses: publish/silence, report/message/display/
-                  prompt/sentinel/record, confirm/lock/unlock/tarpit/
-                  lockout/reveal/taint/expire/single/divert/nextboot/
-                  handover, halt/panic/reboot/poweroff
+                  prompt/sentinel/record, confirm/tarpit/reveal/taint/
+                  expire/single/divert/nextboot/handover,
+                  halt/panic/reboot/poweroff -- none compares a password
   policy.h        the phases and the firing predicates (when_*)
   catalog.tbl     where each kind of catalog entry lives per container and
                   how a name shows there; elebake resolves policies
@@ -37,9 +37,8 @@ The catalogs (parsed by elebake from the headers here):
                   catalogs run, one variable each ($KENV, $SYSCTL ...);
                   the emitter bakes it in as readonly constants, a test
                   run replaces it with mocks
-  gate.h          GATE_DEFINE(id, secret, duress, claims...) -- two
-                  compiled-in passphrase hashes per gate; the duress
-                  one unlocks identically and marks the ledger
+  gate.h          GATE_DEFINE(id, claims...) -- a gate carries no
+                  secret; the loader compares no password (geli_open.h)
 
 Internal (not catalogs): evidence.h (ledger), clock.h (RTC + TSC
 stamps, calibrated at efi_main entry), record.h (encrypt-then-MAC

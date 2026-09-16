@@ -90,8 +90,6 @@ const struct record_state	*record_state(void);
 bool				 record_secret_present(void);
 
 /* geli_keys.c: derive the root's user key in the loader (see there) */
-int		 geli_keys_prepare(void);
-const char	*geli_keys_reason(void);
 /* record.c: why this boot has no keying material (diagnose_record) */
 const char	*record_reason(void);
 /* record.c: 8 hex keyed fingerprint of the GELI part of the material, "-" without */

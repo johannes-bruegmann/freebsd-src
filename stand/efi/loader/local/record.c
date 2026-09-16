@@ -35,6 +35,12 @@
 #include "tpm.h"
 #include "nvme.h"
 #include "record.h"
+#include "geli_keys.h"
+#include "geli_open.h"
+#include "geli_keys.h"
+#include "geli_open.h"
+#include "geli_keys.h"
+#include "geli_open.h"
 #include "action.h"		/* readsecret */
 #include "geliboot.h"		/* geli_ikm_digest */
 
@@ -175,9 +181,9 @@ ikm_gather(void)
 		reason = "no record salt compiled in (LOADER_TRUST_RECORD_SALT)";
 		return (false);
 	}
-	/* The loader may never have opened the root: taste it now (geli_keys.c). */
+	/* The loader may not have opened the root yet: the dialog (geli_open.c). */
 	if (!geli_ikm_digest(ikm))
-		(void)geli_keys_prepare();
+		geli_open_ensure();
 	if (!geli_ikm_digest(ikm)) {
 		reason = geli_keys_reason();
 		return (false);

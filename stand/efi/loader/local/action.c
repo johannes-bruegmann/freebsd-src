@@ -16,14 +16,15 @@
  * publish is where the results reach kenv (loader.trust.<gate>.*); every other
  * action reads what it needs from the appraisal directly, not from kenv.
  * Interactive actions leave their facts in the ledger (evidence.h): attempts,
- * dwell, cadence, the duress tell. Under silence (silence_act) nothing is
+ * dwell, cadence. No action compares a password (geli_open.h). Under
+ * silence (silence_act) nothing is
  * published to the console or kenv any more -- the handover word remains
  * the only channel, and it is opaque.
  */
 
 #include <stand.h>
 #include <string.h>
-#include <bootstrap.h>			/* local_console_lock */
+#include <bootstrap.h>
 
 #include <efi.h>
 #include <efilib.h>			/* RS (reset), delay */
@@ -34,11 +35,10 @@
 #include "claim.h"
 #include "gate.h"
 #include "action.h"
-#include "policy.h"			/* phase_policies: the prompt lock */
+#include "policy.h"
 #include "evidence.h"
 #include "clock.h"
 #include "record.h"
-#include "tpm_keyfile.h"
 #include "nvme.h"
 
 #define	LISTLEN	192
@@ -47,7 +47,7 @@ void	delay(int usecs);		/* libefi/delay.c, undeclared upstream */
 
 /* ------------------------------------------------------------- helpers */
 
-static void
+void
 halt_boot(const char *why)
 {
 	printf("*** boot %s ***\n", why);
@@ -193,46 +193,6 @@ list_by_verdict(const struct appraisal *a, enum verdict want, char *buf, size_t 
 	for (c = a->gate->claims, r = a->results; c->measure != NULL; c++, r++)
 		if (r->verdict == want)
 			record(buf, c->expected.name, sz);
-}
-
-/*
- * The passphrase dialogue shared by lock and unlock: up to three tries
- * against the unlock hash and, if one is compiled in, the duress hash. A
- * duress match unlocks EXACTLY like the real one and marks the ledger --
- * nothing on the console tells the two apart.
- */
-static bool
-passphrase_dialogue(const struct appraisal *a, const char *label,
-    const char *want, const char *duress, bool gate)
-{
-	char got[128], hash[2 * SHA256_DIGEST_LENGTH + 1];
-	int tries;
-
-	for (tries = 0; tries < 3; tries++) {
-		printf("%s: %s: ", a->gate->name, label);
-		readsecret(got, sizeof(got));
-		printf("\n");
-		sha256_hex(got, strlen(got), hash);
-		explicit_bzero(got, sizeof(got));
-		if (strcmp(hash, want) == 0) {
-			if (gate)
-				evidence_note_unlock();
-			else
-				evidence_note_console();
-			return (true);
-		}
-		if (duress != NULL && strcmp(hash, duress) == 0) {
-			evidence_set_duress();
-			if (gate)
-				evidence_note_unlock();
-			else
-				evidence_note_console();
-			return (true);
-		}
-		evidence_note_wrong();
-		printf("wrong.\n");
-	}
-	return (false);
 }
 
 /* --- baseline --- */
@@ -497,120 +457,6 @@ action_confirm(const struct appraisal *a)
 		halt_boot("aborted");
 }
 
-/* Demand the secret if one is configured (kenv secret, optional duress). */
-static void
-action_lock(const struct appraisal *a)
-{
-	const char *want = kenv(a, "secret");	/* expected SHA256, hex */
-
-	if (want == NULL)
-		return;				/* no secret -> nothing to lock */
-	if (!passphrase_dialogue(a, "secret", want, kenv(a, "duress"), true))
-		halt_boot("locked");
-}
-
-/*
- * Compiled-in recovery lock. Unlike action_lock, the expected hashes come from
- * the gate itself (a->gate->secret / ->duress, baked into the signed loader)
- * -- not from kenv/loader.conf, which is exactly the object that may be
- * missing or tampered when this fires. Reports which claims failed, then, if
- * a secret is compiled in, demands the passphrase (3 tries) before letting
- * the boot proceed to the loader prompt; a wrong passphrase halts. With no
- * secret compiled in it reports and continues, so an unprovisioned build is
- * report-only and cannot brick.
- */
-static void
-action_unlock(const struct appraisal *a)
-{
-	char failed[LISTLEN], name[64];
-
-	list_by_verdict(a, VERDICT_FAIL, failed, sizeof(failed));
-	printf("\n*** %s: verification failed [%s] ***\n", a->gate->name, failed);
-	if (a->gate->secret == NULL) {
-		printf("no recovery secret compiled in -- continuing.\n");
-		return;
-	}
-	if (passphrase_dialogue(a, "recovery passphrase", a->gate->secret,
-	    a->gate->duress, true)) {
-		/*
-		 * Handshake: tell the Lua path this gate is already
-		 * satisfied, so it does not ask for the same passphrase
-		 * again (see password.lua trustGate).
-		 */
-		gate_var(a->gate, "unlocked", name, sizeof(name));
-		setenv(name, "1", 1);
-		return;			/* unlocked -> loader prompt */
-	}
-	halt_boot("locked");
-}
-
-/*
- * The device factor: the TPM releases the sealed GELI key file
- * (tpm_keyfile.c) for the providers this gate's leafs name. Bound on pass
- * -- and on the owner's unlock (when_unlocked), so the recovery passphrase
- * still opens the disk; the ledger carries that unlock either way.
- */
-static void
-action_tpm_keyfile(const struct appraisal *a)
-{
-	tpm_keyfile_prepare(kenv(a, "tpm.keyfile.handle"),
-	    kenv(a, "tpm.keyfile.providers"), kenv(a, "tpm.keyfile.pcrs"));
-}
-
-/*
- * The console is a lock. console.c getchar() calls local_console_lock()
- * before it hands out a key, so EVERY interactive path of the loader --
- * the key that interrupts the autoboot, Lua's menu and its password
- * prompts, the OK prompt with or without Lua, the pager, the GELI
- * passphrase of a provider the loader opens -- costs the compiled-in
- * secret of the first LOADER-phase gate that carries one (loaderlock),
- * once per boot, always: a gate's own unlock earlier in this boot lets the
- * boot go on, it does not open the console (11.09.: a recovery unlock had
- * opened the prompt, and a recovery boot is exactly the boot that reaches
- * it). The gates' own dialogs are the trusted readers: local_run() marks
- * the phases trusted, their secrets are asked by the gates themselves.
- * Three wrong answers halt; a build without a compiled-in secret halts at
- * the first key as well -- the console never opens on its own. A boot
- * nobody touches never reads a key and never sees this.
- */
-static int console_trusted;	/* > 0 while a trust gate reads */
-static int console_unlocked;	/* the secret was typed this boot */
-
-void
-local_console_trusted(int on)
-{
-	console_trusted += on > 0 ? 1 : -1;
-}
-
-void
-local_console_lock(void)
-{
-	const struct policy *p;
-	struct appraisal a;
-	char name[64];
-
-	if (console_unlocked || console_trusted > 0)
-		return;
-	console_trusted++;		/* the dialog below reads for itself */
-	for (p = phase_policies(PHASE_LOADER); p->gate != NULL; p++)
-		if (p->gate->secret != NULL)
-			break;
-	if (p->gate == NULL)
-		halt_boot("locked: no console secret compiled in");
-	memset(&a, 0, sizeof(a));
-	a.gate = p->gate;
-	a.results = p->results;
-	a.verdict = VERDICT_FAIL;
-	printf("\n*** %s: the console ***\n", p->gate->name);
-	if (!passphrase_dialogue(&a, "recovery passphrase", p->gate->secret,
-	    p->gate->duress, false))
-		halt_boot("locked");
-	gate_var(p->gate, "console", name, sizeof(name));
-	setenv(name, "1", 1);
-	console_unlocked = 1;
-	console_trusted--;
-}
-
 /* Sleep 2^attempts seconds (capped at 64) before whatever comes next. */
 static void
 action_tarpit(const struct appraisal *a __unused)
@@ -620,26 +466,6 @@ action_tarpit(const struct appraisal *a __unused)
 	while (n-- > 0 && s < 64)
 		s *= 2;
 	delay((int)s * 1000000);
-}
-
-/*
- * Halt once the WRONG passphrases of this boot reach
- * loader.trust.<gate>.attempts (3). Wrong ones only: the routine hidden
- * lines -- the boot answer, the sentinel -- and the entry that just opened
- * a gate are not attempts against it. Counting them locked the owner out
- * right after a correct recovery (illyria 12.09., JB: "die Logik stimmt
- * nicht"): console secret, answer, sentinel, recovery made five.
- */
-static void
-action_lockout(const struct appraisal *a)
-{
-	const char *lim = kenv(a, "attempts");
-	unsigned int n = 3;
-
-	if (lim != NULL)
-		n = (unsigned int)strtoul(lim, NULL, 10);
-	if (n > 0 && evidence()->wrong >= n)
-		halt_boot("locked out");
 }
 
 /*
@@ -785,10 +611,9 @@ action_handover(const struct appraisal *a)
 		return;
 	if (e->taint)
 		flags |= RECORD_F_TAINT;
-	if (e->duress)
-		flags |= RECORD_F_DURESS;
 	if (e->prompted > 0)
 		flags |= RECORD_F_PROMPTED;
+	/* RECORD_F_DURESS stays clear: the loader compares no password */
 	evidence_digest(d);
 	hex_of(d, sizeof(d), hex);
 	snprintf(msg, sizeof(msg), "%s|%llu|%u", hex,
@@ -837,11 +662,7 @@ ACTION_DEFINE(prompt,   action_prompt);
 ACTION_DEFINE(sentinel, action_sentinel);
 ACTION_DEFINE(record,   action_record);
 ACTION_DEFINE(confirm,  action_confirm);
-ACTION_DEFINE(lock,     action_lock);
-ACTION_DEFINE(unlock,   action_unlock);
-ACTION_DEFINE(tpm_keyfile, action_tpm_keyfile);
 ACTION_DEFINE(tarpit,   action_tarpit);
-ACTION_DEFINE(lockout,  action_lockout);
 ACTION_DEFINE(reveal,   action_reveal);
 ACTION_DEFINE(taint,    action_taint);
 ACTION_DEFINE(expire,   action_expire);
