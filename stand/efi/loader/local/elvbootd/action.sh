@@ -55,7 +55,7 @@ compare_media_act() {
 # old test looked for appraisal-<loader gate> and failed every boot.
 sentinel_act() {
 	local boot="" f
-	boot=$($SYSCTL -n kern.boottime 2>/dev/null | $SED 's/.*sec = \([0-9]*\).*/\1/')
+	boot=$($SYSCTL -n kern.boottime 2>/dev/null | $SED 's/^{ sec = \([0-9]*\),.*/\1/')
 	case "$boot" in ''|*[!0-9]*) boot=0 ;; esac
 	for f in "$ELV_STATE"/appraisal-*; do
 		[ -f "$f" ] || continue
