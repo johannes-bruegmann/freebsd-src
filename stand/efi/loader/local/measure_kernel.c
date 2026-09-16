@@ -255,17 +255,6 @@ measure_ledger_prompted(int argc __unused, CHAR16 *argv[] __unused)
 	return (m);
 }
 
-struct measurement
-measure_ledger_unlocked(int argc __unused, CHAR16 *argv[] __unused)
-{
-	struct measurement m = { .name = "LedgerUnlocked", .type = MEAS_BYTE,
-	    .present = true };
-	unsigned int n = evidence()->unlocked;
-
-	m.value.byte = n > 255 ? 255 : n;
-	return (m);
-}
-
 void
 diagnose_ledger(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 {
@@ -274,9 +263,8 @@ diagnose_ledger(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 	char item[64];
 
 	d->leaf = "ledger";
-	snprintf(d->text, sizeof(d->text),
-	    "gates=%u,failed=%u,prompted=%u,unlocked=%u,console=%u,wrong=%u",
-	    e->ngates, e->failed_gates, e->prompted, e->unlocked, e->console, e->wrong);
+	snprintf(d->text, sizeof(d->text), "gates=%u,failed=%u,prompted=%u",
+	    e->ngates, e->failed_gates, e->prompted);
 	for (i = 0; i < e->ngates; i++) {
 		snprintf(item, sizeof(item), ";%u:%s:%s", e->gates[i].phase,
 		    e->gates[i].gate,

@@ -16,8 +16,6 @@
 
 #include <stand.h>
 #include <string.h>
-#include <bootstrap.h>			/* local_console_trusted */
-
 #include <efi.h>			/* CHAR16 */
 
 #include "claim.h"
@@ -26,6 +24,14 @@
 #include "policy.h"
 #include "evidence.h"
 #include "record.h"
+#include "tpm_keyfile.h"
+#include "geli_open.h"
+#include "tpm_keyfile.h"
+#include "geli_open.h"
+#include "tpm_keyfile.h"
+#include "geli_open.h"
+#include "tpm_keyfile.h"
+#include "geli_open.h"
 
 /* --- firing predicates (open catalog) --- */
 
@@ -88,26 +94,9 @@ when_tainted(const struct appraisal *a __unused)
 }
 
 bool
-when_duress(const struct appraisal *a __unused)
-{
-	return (evidence()->duress);
-}
-
-bool
 when_prompted(const struct appraisal *a __unused)
 {
 	return (evidence()->prompted > 0);
-}
-
-bool
-when_unlocked(const struct appraisal *a)
-{
-	const char *v;
-	char name[64];
-
-	gate_var(a->gate, "unlocked", name, sizeof(name));
-	v = getenv(name);
-	return (v != NULL && strcmp(v, "1") == 0);
 }
 
 /* --- execution --- */
@@ -142,8 +131,6 @@ record_flags(void)
 
 	if (e->taint)
 		f |= RECORD_F_TAINT;
-	if (e->duress)
-		f |= RECORD_F_DURESS;
 	if (e->prompted > 0)
 		f |= RECORD_F_PROMPTED;
 	return (f);
@@ -163,20 +150,25 @@ local_run(enum phase ph, int argc, CHAR16 *argv[])
 	enum phase post = post_of(ph);
 
 	evidence_args(argc, argv);
-	local_console_trusted(1);	/* the gates' dialogs are their own locks */
 	/*
-	 * The record loads at its first claim (record_state), not here: a
-	 * gate before the record's may still act on the key material -- the
-	 * TPM key file (tpm_keyfile_act) -- and the derivation is one attempt
-	 * per boot.
+	 * KERNEL: the device factor first -- the TPM releases the key file
+	 * under its PCR policy before any gate measures and before anything
+	 * is asked (tpm_keyfile.h). The gates then measure; none of them
+	 * halts or asks for a password. The record loads at its first claim
+	 * (record_state), which runs the one dialog of the boot (geli_open.c)
+	 * if it has not run; the dialog runs at the latest after the
+	 * policies, so the kernel always gets its keys.
 	 */
+	if (ph == PHASE_KERNEL)
+		tpm_keyfile_prepare();
 	for (p = phase_policies(ph); p->gate != NULL; p++)
 		policy_run(ph, p, argc, argv);
 	for (p = phase_policies(post); p->gate != NULL; p++)
 		policy_run(post, p, argc, argv);
-	if (ph == PHASE_KERNEL)
+	if (ph == PHASE_KERNEL) {
+		geli_open_ensure();
 		(void)record_commit(record_flags());
-	local_console_trusted(-1);
+	}
 }
 
 void

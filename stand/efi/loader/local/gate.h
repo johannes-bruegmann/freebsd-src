@@ -13,18 +13,16 @@
  * claims -- it has no side effects, it does not publish. The appraisal bundles
  * the gate, the overall verdict and those results for the actions to consume.
  *
- * GATE_DEFINE(id, sec, dur, ...) emits, at file scope, the const claim array,
- * an exact-sized results scratch, and the gate. Because the results array is
+ * GATE_DEFINE(id, ...) emits, at file scope, the const claim array, an
+ * exact-sized results scratch, and the gate. Because the results array is
  * sized by the same macro, it can never be too short -- overflow is impossible
  * by construction, not caught at runtime. Publishing is loader.trust.<name>.<leaf>.
  *
- * Two secrets per gate, both compiled into the SIGNED loader (site.mk slots,
- * hex sha256 of a passphrase): the unlock secret, and the DURESS secret -- a
- * second passphrase that unlocks exactly like the first, but marks the boot
- * as coerced in the evidence ledger (evidence.h). To the coercer both look
- * identical. Assumes: the loader binary lives on the medium the owner
- * carries; whoever holds medium and hash can brute-force the passphrase
- * offline, so both are Diceware-class secrets.
+ * A gate carries no secret. The loader compares no password: the only
+ * proof is the encrypted provider that opens with the three factors
+ * (geli_open.h). A hash in the binary on the owner's medium is a hash an
+ * attacker compares against at home, and it would tell a duress
+ * passphrase from the real one (JB 16.09.).
  */
 
 #ifndef _LOCAL_GATE_H_
@@ -36,8 +34,6 @@
 
 struct gate {
 	const char		*name;		/* publishes under loader.trust.<name> */
-	const char		*secret;	/* compiled-in unlock hash (hex sha256), or NULL */
-	const char		*duress;	/* compiled-in duress hash (hex sha256), or NULL */
 	const struct claim	*claims;	/* CLAIM_END-terminated */
 };
 
@@ -48,19 +44,13 @@ struct appraisal {
 	struct claim_result	*results;
 };
 
-/*
- * Emit a gate's const claims, its exact-sized results scratch, and the gate.
- * sec is the compiled-in unlock secret (hex sha256) or NULL for a gate with no
- * lock; dur the duress secret or NULL; an action (action_unlock) reads both
- * from a->gate.
- */
-#define	GATE_DEFINE(id, sec, dur, ...)					\
+/* Emit a gate's const claims, its exact-sized results scratch, and the gate. */
+#define	GATE_DEFINE(id, ...)						\
 	static const struct claim id##_claims[] = { __VA_ARGS__, CLAIM_END }; \
 	static struct claim_result					\
 	    id##_results[sizeof(id##_claims) / sizeof((id##_claims)[0]) - 1]; \
 	static const struct gate id##_gate =				\
-	    { .name = #id, .secret = (sec), .duress = (dur),		\
-	      .claims = id##_claims }
+	    { .name = #id, .claims = id##_claims }
 
 /* Measure every claim into results[], return the overall verdict. Pure. */
 enum verdict	gate_appraise(const struct gate *, int argc, CHAR16 *argv[],

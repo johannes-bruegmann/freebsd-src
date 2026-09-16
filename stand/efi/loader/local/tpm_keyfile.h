@@ -17,18 +17,17 @@
  * the TPM releases nothing. Recovery is the disk's other slot (a
  * passphrase alone) and the seed.
  *
- * Released by an ACTION, tpm_keyfile_act (action.c), so a policy decides
- * when: bound in the gate whose verdict must stand first (kernellock --
- * kernel, preloads and loader.conf verified, the PCR bank compared),
- * fired on pass and on the owner's unlock. The action reads three leafs
- * of ITS gate, loader.trust.<gate>.tpm.keyfile.*: handle (the persistent
- * object, 0x81010001), providers (nda0p1 nda2p1; empty: unseal only),
- * pcrs (0,2,7 -- the policy the object was sealed under). The record's
- * claims, which need the file, live in a later gate of the same phase
- * (recordlock): the record loads at its first claim, after the action.
- * A leaf that does not parse, a TPM that refuses, a provider that cannot
- * take the file: the claim TpmKeyfile measures 0 and the diagnosis says
- * why; no leaf at all, or the action never fired: the claim is absent.
+ * The FIRST step of the KERNEL phase (policy.c local_run), before any
+ * gate measures and before anything is asked: no input precedes it, no
+ * input can influence it -- the TPM decides by its PCR policy alone
+ * (JB 16.09.). Three leafs, loader.trust.tpm.keyfile.*: handle (the
+ * persistent object, 0x81010001), providers (nda0p1 nda2p1; empty:
+ * unseal only), pcrs (0,2,7 -- the policy the object was sealed under).
+ * The dialog that applies the file (geli_open.c) and the record's claims
+ * come later in the phase. A leaf that does not parse, a TPM that
+ * refuses, a provider that cannot take the file: the claim TpmKeyfile
+ * measures 0 and the diagnosis says why; no leaf at all: the claim is
+ * absent.
  *
  * Not a catalog: internal to the local layer.
  */
@@ -46,8 +45,7 @@ struct tpm_keyfile_state {
 	const char	*reason;	/* what happened, for the diagnosis */
 };
 
-void	tpm_keyfile_prepare(const char *handle, const char *providers,
-	    const char *pcrs);			/* once per boot */
+void	tpm_keyfile_prepare(void);		/* once per boot, from kenv */
 const struct tpm_keyfile_state *tpm_keyfile_state(void);
 
 #endif /* _LOCAL_TPM_KEYFILE_H_ */

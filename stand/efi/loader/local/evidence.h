@@ -9,11 +9,12 @@
  *
  * Gates appraise, actions react, and both leave a trace here: per phase the
  * appraised gates and their verdicts, the actions that fired, and the
- * interactive facts a prompt produces (attempts, dwell, the duress tell).
- * The ledger is the input of the KERNEL-phase providers (measure_ledger_*,
+ * interactive facts a prompt produces (attempts, dwell, cadence). The
+ * ledger is the input of the KERNEL-phase providers (measure_ledger_*,
  * measure_time_prompt, measure_attempts) and of the handover word; it is
- * never published in clear -- the duress and taint bits in particular
- * reach earlboot only inside the word.
+ * never published in clear -- the taint bit in particular reaches
+ * earlboot only inside the word. The word's duress bit stays 0: the
+ * loader compares no password, duress is earlboot's (JB 16.09.).
  *
  * Not a catalog: internal to the local layer.
  */
@@ -44,13 +45,9 @@ struct evidence {
 	unsigned int		 ngates;
 	unsigned int		 failed_gates;	/* verdict FAIL, all phases */
 	unsigned int		 prompted;	/* interactive actions fired */
-	unsigned int		 unlocked;	/* successful unlocks of a GATE */
-	unsigned int		 console;	/* the console lock opened (action.c) */
-	unsigned int		 attempts;	/* passphrase entries, all prompts */
-	unsigned int		 wrong;		/* ... of which wrong (lockout_act) */
+	unsigned int		 attempts;	/* hidden lines read, all prompts */
 	uint64_t		 prompt_ms;	/* summed dwell at prompts */
 	uint64_t		 cadence_ms;	/* longest pause between two keys */
-	bool			 duress;	/* a duress tell was observed */
 	bool			 taint;		/* taint_act or a failed gate */
 	bool			 silence;	/* silence_act: no publish */
 	int			 argc;		/* the LoadOptions, kept from BOOT */
@@ -63,12 +60,8 @@ const struct evidence	*evidence(void);
 void	evidence_args(int argc, CHAR16 *argv[]);
 void	evidence_note_appraisal(unsigned int phase, const struct appraisal *);
 void	evidence_note_action(const char *name);	/* counts the interactive ones */
-void	evidence_note_unlock(void);
-void	evidence_note_console(void);
 void	evidence_note_attempt(void);
-void	evidence_note_wrong(void);
 void	evidence_note_prompt(uint64_t dwell_ms, uint64_t cadence_ms);
-void	evidence_set_duress(void);
 void	evidence_set_taint(void);
 void	evidence_set_silence(void);
 

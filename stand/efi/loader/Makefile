@@ -39,6 +39,7 @@ SRCS=	autoload.c \
 	clock.c \
 	record.c \
 	geli_keys.c \
+	geli_open.c \
 	tpm.c \
 	tpm_keyfile.c \
 	nvme.c \

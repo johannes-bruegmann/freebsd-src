@@ -7,12 +7,12 @@
 /*
  * tpm_keyfile.c -- the GELI key file the TPM releases (tpm_keyfile.h).
  *
- * Runs as the action of a KERNEL-phase gate, once: the kernel is loaded,
- * so a buffer can become a preloaded file (file_addbuf), and the record's
- * key derivation (geli_keys.c) has not run yet -- it runs at the first
- * record claim, in a gate bound after the action's -- so it sees the
- * file. The bytes live in the loader only as long as it takes to copy
- * them into the preload area; the kernel's g_eli reads the same file.
+ * Runs first in the KERNEL phase, once: the kernel is loaded, so a
+ * buffer can become a preloaded file (file_addbuf), and the derivation
+ * (geli_keys.c, from the dialog geli_open.c) has not run yet, so it sees
+ * the file. The bytes live in the loader only as long as it takes to
+ * copy them into the preload area; the kernel's g_eli reads the same
+ * file.
  */
 
 #include <stand.h>
@@ -70,9 +70,12 @@ next_index(const char *prov)
 }
 
 void
-tpm_keyfile_prepare(const char *h, const char *p, const char *pc)
+tpm_keyfile_prepare(void)
 {
 	static bool tried;
+	const char *h = getenv("loader.trust.tpm.keyfile.handle");
+	const char *p = getenv("loader.trust.tpm.keyfile.providers");
+	const char *pc = getenv("loader.trust.tpm.keyfile.pcrs");
 	uint8_t secret[TPM_KEYFILE_MAX];
 	char prov[TPM_KEYFILE_PROVLEN], type[TPM_KEYFILE_PROVLEN + 24];
 	const char *q;

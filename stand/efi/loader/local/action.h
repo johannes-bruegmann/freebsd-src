@@ -47,20 +47,13 @@
  *               /EFI/elvboot/ and to an NVRAM variable; assumes a writable
  *               medium and that earlboot/elvbootd verify the record's MAC
  * confirm_act   ask y/N on the console before going on
- * lock_act      demand the secret loader.trust.<gate>.secret at a prompt
- * unlock_act    demand the compiled-in secret (or the duress secret), three
- *               tries; a duress entry proceeds silently marked
- * tpm_keyfile_act
- *               have the TPM release the sealed GELI key file (T0.7) for
- *               the providers loader.trust.<gate>.tpm.keyfile.providers
- *               names, under the PCR policy .pcrs, from the object
- *               .handle; the device factor of the encrypted root. Assumes
- *               this gate verified kernel, preloads and loader.conf
- *               first; bind on pass and on unlock, before the record's
- *               gate. An empty providers leaf unseals and adds nothing
  * tarpit_act    sleep 2^attempts seconds before a prompt; assumes the
  *               coercer cannot afford to wait
- * lockout_act   halt once the attempts reach loader.trust.<gate>.attempts
+ *
+ * No action demands or compares a password: the passphrase is applied to
+ * the encrypted providers by the one dialog of the boot (geli_open.h),
+ * and the TPM key file is released first thing in the KERNEL phase
+ * (tpm_keyfile.h), not by an action (JB 16.09.).
  * reveal_act    show four words derived from the gate secret and the ledger
  *               so the HUMAN recognises the honest loader before typing a
  *               passphrase (Qubes AEM inverted); assumes the words are read
@@ -101,6 +94,8 @@ struct appraisal;
  */
 void	readsecret(char *buf, size_t sz);
 void	readsecret_confirm(char *buf, size_t sz);
+void	halt_boot(const char *why);		/* prints, then waits forever */
+void	halt_boot(const char *why);		/* prints, then waits forever */
 
 struct action {
 	const char	*name;
@@ -122,11 +117,7 @@ extern const struct action	prompt_act;
 extern const struct action	sentinel_act;
 extern const struct action	record_act;
 extern const struct action	confirm_act;
-extern const struct action	lock_act;
-extern const struct action	unlock_act;
-extern const struct action	tpm_keyfile_act;
 extern const struct action	tarpit_act;
-extern const struct action	lockout_act;
 extern const struct action	reveal_act;
 extern const struct action	taint_act;
 extern const struct action	expire_act;

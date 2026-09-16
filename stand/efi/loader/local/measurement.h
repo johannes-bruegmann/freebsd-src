@@ -232,13 +232,11 @@ struct measurement	measure_gpt(int argc, CHAR16 *argv[]);
  *                       move it. Read-only use of the TPM: no sealing, no
  *                       key material.
  * measure_nvme          1 iff an NVMe answered the SMART log page
- * measure_tpm_keyfile   1 iff tpm_keyfile_act had the TPM release the
- *                       sealed GELI key file under its PCR policy and
- *                       every named provider got it as a preloaded key
- *                       file (tpm_keyfile.c). Absent when the action did
- *                       not fire or no leaf was set. Belongs to the gate
- *                       after the action's (recordlock), with the record
- *                       claims. The device factor of the encrypted root:
+ * measure_tpm_keyfile   1 iff the TPM released the sealed GELI key file
+ *                       under its PCR policy, first thing in the KERNEL
+ *                       phase, and every named provider got it as a
+ *                       preloaded key file (tpm_keyfile.c). Absent when
+ *                       no leaf was set. The device factor of the encrypted root:
  *                       this TPM, unchanged firmware, option ROMs and
  *                       Secure Boot keys.
  */
@@ -291,9 +289,6 @@ struct measurement	measure_attempts(int argc, CHAR16 *argv[]);
  *                       kernel/module update and every prompt-side load.
  * measure_ledger_failed   number of gates that FAILED in earlier phases
  * measure_ledger_prompted number of interactive actions that ran so far
- *                         (the console lock's own dialog counts under
- *                         'console' in the ledger diagnosis, not here)
- * measure_ledger_unlocked number of unlocks so far
  */
 struct measurement	measure_howto(int argc, CHAR16 *argv[]);
 struct measurement	measure_kenv_guard(int argc, CHAR16 *argv[]);
@@ -301,7 +296,6 @@ struct measurement	measure_preload(int argc, CHAR16 *argv[]);
 struct measurement	measure_softpcr(int argc, CHAR16 *argv[]);
 struct measurement	measure_ledger_failed(int argc, CHAR16 *argv[]);
 struct measurement	measure_ledger_prompted(int argc, CHAR16 *argv[]);
-struct measurement	measure_ledger_unlocked(int argc, CHAR16 *argv[]);
 
 /*
  * --- diagnostics: human-readable evidence next to a verdict, published
@@ -328,8 +322,8 @@ struct measurement	measure_ledger_unlocked(int argc, CHAR16 *argv[]);
  * diagnose_time_rtc_tsc        time.now: RTC, TSC and ticks per millisecond
  * diagnose_howto               howto: the RB_* flags in hex and by name
  * diagnose_preload             preload: total and unverified preloaded files
- * diagnose_ledger              ledger: gates, failed, prompted, unlocked
- *                              counts and the per-gate entries
+ * diagnose_ledger              ledger: gates, failed, prompted counts and
+ *                              the per-gate entries
  */
 void	diagnose_origin(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_prerequisites_exist(int argc, CHAR16 *argv[], struct diagnosis *);

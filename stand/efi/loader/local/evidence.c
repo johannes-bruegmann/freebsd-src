@@ -57,7 +57,7 @@ evidence_note_appraisal(unsigned int phase, const struct appraisal *a)
 	}
 	/*
 	 * The verdict stays FAIL when nothing was checked (gate.c: silence is
-	 * not trust, when_fail fires, an unlock is asked), but the ledger counts
+	 * not trust, when_fail fires), but the ledger counts
 	 * and taints only a gate that saw a claim FAIL: a gate whose every claim
 	 * was skipped -- the answer classes on a boot without a prompt -- is
 	 * unmeasured, not broken, and the book says "skipped", not "failed".
@@ -78,7 +78,7 @@ evidence_note_action(const char *name)
 	 * pressed" -- report_act's pause and reveal_act's words do not.
 	 */
 	static const char *const interactive[] = { "prompt", "sentinel",
-	    "confirm", "lock", "unlock", NULL };
+	    "confirm", NULL };
 	unsigned int i;
 
 	for (i = 0; interactive[i] != NULL; i++)
@@ -89,30 +89,9 @@ evidence_note_action(const char *name)
 }
 
 void
-evidence_note_unlock(void)
-{
-	E.unlocked++;
-}
-
-/* The console lock opened: booked apart from a gate's unlock (LedgerUnlocked
- * expects 0 on a boot nobody rescued; a typed console secret is not that). */
-void
-evidence_note_console(void)
-{
-	E.console++;
-}
-
-void
 evidence_note_attempt(void)
 {
 	E.attempts++;
-}
-
-/* A passphrase that was neither the secret nor the duress word. */
-void
-evidence_note_wrong(void)
-{
-	E.wrong++;
 }
 
 void
@@ -121,12 +100,6 @@ evidence_note_prompt(uint64_t dwell_ms, uint64_t cadence_ms)
 	E.prompt_ms += dwell_ms;
 	if (cadence_ms > E.cadence_ms)
 		E.cadence_ms = cadence_ms;
-}
-
-void
-evidence_set_duress(void)
-{
-	E.duress = true;
 }
 
 void
@@ -160,9 +133,8 @@ evidence_digest(uint8_t out[static SHA256_DIGEST_LENGTH])
 		    E.gates[i].failed, E.gates[i].skipped);
 		SHA256_Update(&ctx, line, strlen(line));
 	}
-	snprintf(line, sizeof(line), "f=%u p=%u u=%u a=%u t=%u d=%u\n",
-	    E.failed_gates, E.prompted, E.unlocked, E.attempts,
-	    E.taint ? 1 : 0, E.duress ? 1 : 0);
+	snprintf(line, sizeof(line), "f=%u p=%u a=%u t=%u\n",
+	    E.failed_gates, E.prompted, E.attempts, E.taint ? 1 : 0);
 	SHA256_Update(&ctx, line, strlen(line));
 	SHA256_Final(out, &ctx);
 }

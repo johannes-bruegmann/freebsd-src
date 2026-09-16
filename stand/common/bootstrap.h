@@ -280,16 +280,12 @@ void file_removemetadata(struct preloaded_file *fp);
 int file_addbuf(const char *name, const char *type, size_t len, void *buf);
 /*
  * local platform-trust gates (efi/loader/local, this fork's loaders):
- * provenance of the blobs file_addbuf() makes, and the lock on the
- * console -- every keystroke the loader reads passes local_console_lock()
- * (console.c getchar); the gates' own dialogs read as trusted
- * (local_console_trusted). The call sites sit under LOADER_VERIEXEC, the
- * define the loader's own objects carry (LOADER_VERIEXEC_ELEVATED reaches
- * libsecureboot only, via lib/libsecureboot/site.trust.mk).
+ * provenance of the blobs file_addbuf() makes. The call site sits under
+ * LOADER_VERIEXEC, the define the loader's own objects carry
+ * (LOADER_VERIEXEC_ELEVATED reaches libsecureboot only, via
+ * lib/libsecureboot/site.trust.mk).
  */
 void local_note_addbuf(struct preloaded_file *fp);
-void local_console_lock(void);
-void local_console_trusted(int on);
 int tslog_init(void);
 int tslog_publish(void);
 

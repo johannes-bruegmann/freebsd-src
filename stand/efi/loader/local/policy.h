@@ -25,8 +25,8 @@
  * Phases and the ledger. Every appraisal a phase runs is noted in the
  * evidence ledger (evidence.h) before the next phase starts, so a later
  * phase can weigh what an earlier one saw: "a claim failed in BOOT", "a
- * prompt was shown in LOADER", "an unlock happened" are ordinary
- * measurements in KERNEL (measure_ledger_*). The KERNEL phase runs after
+ * prompt was shown in LOADER" are ordinary measurements in KERNEL
+ * (measure_ledger_*). The KERNEL phase runs after
  * the interactive window has closed and before ExitBootServices -- it is
  * the last place where the loader can still refuse the kernel, divert
  * into the rescue system, or hand the boot evidence over (handover_act).
@@ -66,9 +66,9 @@ enum phase {
 /*
  * Every phase has an after-phase, PHASE_<x>_POST, that local_run() runs
  * once the actions of PHASE_<x> are done: its claims measure what those
- * actions produced -- the prompt's attempts and dwell, the ledger, the
- * duress tell -- which the phase itself cannot see (it measures before it
- * acts). PHASE_KERNEL_POST is the last thing before the record is committed.
+ * actions produced -- the prompt's attempts and dwell, the ledger --
+ * which the phase itself cannot see (it measures before it acts).
+ * PHASE_KERNEL_POST is the last thing before the record is committed.
  * The enum keeps each after-phase right behind its phase (post_of).
  */
 
@@ -104,15 +104,11 @@ struct policy {
  *                 check; no critical check may exist solely behind it.
  *   when_tainted  the evidence ledger carries a taint (taint_act fired, or
  *                 an earlier phase failed)
- *   when_duress   a duress tell was observed at a prompt (evidence.h). Bind
- *                 only SILENT actions here: the point of duress is that the
- *                 coercer sees nothing.
  *   when_prompted an interactive action ran in this or an earlier phase
- *   when_unlocked THIS gate was unlocked in this boot: unlock_act set
- *                 loader.trust.<gate>.unlocked after the recovery (or
- *                 duress) passphrase. Binds what a failed gate may still
- *                 do once the owner answered -- the verdict stays FAIL,
- *                 the ledger keeps the unlock
+ *
+ * No predicate asks whether a password matched: the loader compares none
+ * (geli_open.h). Duress is classified behind the encrypted root, by
+ * earlboot's answer gates, never here (JB 16.09.).
  */
 bool	when_always(const struct appraisal *);
 bool	when_fail(const struct appraisal *);
@@ -120,9 +116,7 @@ bool	when_pass(const struct appraisal *);
 bool	when_skipped(const struct appraisal *);
 bool	when_maybe(const struct appraisal *);
 bool	when_tainted(const struct appraisal *);
-bool	when_duress(const struct appraisal *);
 bool	when_prompted(const struct appraisal *);
-bool	when_unlocked(const struct appraisal *);
 
 /*
  * The bindings of a policy are one POLICY_TABLE_DEFINE(name, binding1, ...):
@@ -141,8 +135,8 @@ bool	when_unlocked(const struct appraisal *);
  *
  *   POLICY_TABLE_DEFINE(loaderlock_bindings,
  *       FIRE(when_always, publish_act),
- *       FIRE(AND(when_fail, NOT(when_skipped)), unlock_act),
- *       FIRE(when_duress, COMPOSE(taint_act, silence_act)));
+ *       FIRE(AND(when_fail, NOT(when_skipped)), report_act),
+ *       FIRE(when_tainted, COMPOSE(taint_act, silence_act)));
  */
 #define	CAT_(x, y)		x ## y
 #define	CAT(x, y)		CAT_(x, y)
