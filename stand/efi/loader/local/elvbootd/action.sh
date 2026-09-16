@@ -57,8 +57,8 @@ sentinel_act() {
 	local boot="" f
 	boot=$($SYSCTL -n kern.boottime 2>/dev/null | $SED 's/^{ sec = \([0-9]*\),.*/\1/')
 	case "$boot" in ''|*[!0-9]*) boot=0 ;; esac
-	for f in "$ELV_STATE"/appraisal-*; do
-		[ -f "$f" ] || continue
+	# no glob: the generated script runs under set -f
+	for f in $($FIND "$ELV_STATE" -maxdepth 1 -type f -name 'appraisal-*' 2>/dev/null); do
 		[ "$($STAT -f %m "$f" 2>/dev/null || echo 0)" -ge "$boot" ] && return 0
 	done
 	GATE_VERDICT=fail; FAILED="$FAILED earlboot-missing"
