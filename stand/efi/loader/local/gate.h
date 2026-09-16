@@ -18,11 +18,12 @@
  * sized by the same macro, it can never be too short -- overflow is impossible
  * by construction, not caught at runtime. Publishing is loader.trust.<name>.<leaf>.
  *
- * A gate carries no secret. The loader compares no password: the only
- * proof is the encrypted provider that opens with the three factors
- * (geli_open.h). A hash in the binary on the owner's medium is a hash an
- * attacker compares against at home, and it would tell a duress
- * passphrase from the real one (JB 16.09.).
+ * A gate carries no secret. The passphrase of the disk is the TPM's to
+ * judge (tpm_keyfile.h); the only proof is the encrypted provider that
+ * opens with the three factors (geli_open.h). A hash in the binary on
+ * the owner's medium is a hash an attacker compares against at home --
+ * the one left, unlock_act's, opens nothing and has no second role to
+ * give away (JB 16.09.).
  */
 
 #ifndef _LOCAL_GATE_H_

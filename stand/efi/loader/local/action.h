@@ -47,13 +47,17 @@
  *               /EFI/elvboot/ and to an NVRAM variable; assumes a writable
  *               medium and that earlboot/elvbootd verify the record's MAC
  * confirm_act   ask y/N on the console before going on
+ * unlock_act    the informed decision: report the failed claims, ask the
+ *               unlock passphrase (the one hash in the binary,
+ *               LOADER_TRUST_UNLOCK_SECRET), three tries, then halt; no
+ *               hash compiled in: report and continue. Opens nothing,
+ *               tells no second role apart
  * tarpit_act    sleep 2^attempts seconds before a prompt; assumes the
  *               coercer cannot afford to wait
  *
- * No action demands or compares a password: the passphrase is applied to
- * the encrypted providers by the one dialog of the boot (geli_open.h),
- * and the TPM key file is released first thing in the KERNEL phase
- * (tpm_keyfile.h), not by an action (JB 16.09.).
+ * The passphrase of the disk is never compared here: the dialog of the
+ * boot (geli_open.h) hands it to the TPM, which decides by policy and
+ * auth value (tpm_keyfile.h), then to GELI (JB 16.09.).
  * reveal_act    show four words derived from the gate secret and the ledger
  *               so the HUMAN recognises the honest loader before typing a
  *               passphrase (Qubes AEM inverted); assumes the words are read
@@ -117,6 +121,7 @@ extern const struct action	prompt_act;
 extern const struct action	sentinel_act;
 extern const struct action	record_act;
 extern const struct action	confirm_act;
+extern const struct action	unlock_act;
 extern const struct action	tarpit_act;
 extern const struct action	reveal_act;
 extern const struct action	taint_act;

@@ -50,14 +50,25 @@ struct tpm_clock {
 
 bool	tpm_present(void);
 bool	tpm_read_clock(struct tpm_clock *);
-bool	tpm_pcr_bank(uint8_t out[static SHA256_DIGEST_LENGTH]);	/* sha256 over PCR0..7 */
+bool	tpm_parse_pcrs(const char *list, uint32_t *mask);		/* "0,2,7" -> bits */
+bool	tpm_pcr_bank(uint32_t mask, uint8_t out[static SHA256_DIGEST_LENGTH]);	/* sha256 over the selected PCRs */
 bool	tpm_nv_counter_read(uint64_t *);
 bool	tpm_nv_counter_increment(void);
 bool	tpm_nv_define_counter(void);
 /* Unseal <handle> under a policy session bound to the PCRs of <pcr_mask>
  * (bit i = PCR i, SHA256 bank); the bytes go to out (at most cap). */
-bool	tpm_unseal(uint32_t handle, uint32_t pcr_mask, uint8_t *out, size_t cap,
-	    size_t *len);
+/* The storage key the sessions are salted to: its name's digest (baseline). */
+bool	tpm_key_digest(uint32_t keyhandle, uint8_t out[static SHA256_DIGEST_LENGTH]);
+/* Unseal under a salted, encrypting policy session (PCR policy; with an
+ * auth value also PolicyAuthValue). key_digest, when given, must be the
+ * storage key's; a refusal or a wrong HMAC is reported by tpm_last_error. */
+bool	tpm_unseal(uint32_t keyhandle, const uint8_t *key_digest, uint32_t handle,
+	    uint32_t pcr_mask, const uint8_t *auth, size_t authlen,
+	    uint8_t *out, size_t cap, size_t *len);
+/* NV counters of the local layer: increment under a policy session
+ * (PolicyCommandCode), read with the index's own empty auth. */
+bool	tpm_nv_policy_increment(uint32_t keyhandle, uint32_t index);
+bool	tpm_nv_index_read(uint32_t index, uint64_t *out);
 const char *tpm_last_error(void);
 
 #endif /* _LOCAL_TPM_H_ */

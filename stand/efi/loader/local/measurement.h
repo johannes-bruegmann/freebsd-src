@@ -226,17 +226,20 @@ struct measurement	measure_gpt(int argc, CHAR16 *argv[]);
  * measure_time_of_day   1 iff the RTC hour lies within
  *                       [LOADER_TRUST_TIME_HOUR_MIN, LOADER_TRUST_TIME_HOUR_MAX]
  * measure_tpm           1 iff a TPM answered (TCG2 protocol, ReadClock)
- * measure_pcr           sha256 over the PCR 0..7 SHA256 bank -- the
+ * measure_pcr           sha256 over the SHA256 bank of the PCRs
+ *                       loader.trust.pcr.require selects (0..7 when the
+ *                       leaf is absent; PCR 5 is the boot disk's GPT and
+ *                       differs between two cards of unequal size) -- the
  *                       firmware's own measured boot (Boot Guard/PTT
  *                       event log). Baseline learned; BIOS/Setup changes
  *                       move it. Read-only use of the TPM: no sealing, no
  *                       key material.
  * measure_nvme          1 iff an NVMe answered the SMART log page
  * measure_tpm_keyfile   1 iff the TPM released the sealed GELI key file
- *                       under its PCR policy, first thing in the KERNEL
- *                       phase, and every named provider got it as a
- *                       preloaded key file (tpm_keyfile.c). Absent when
- *                       no leaf was set. The device factor of the encrypted root:
+ *                       for the typed passphrase under its PCR policy
+ *                       and every named provider got it as a preloaded
+ *                       key file (tpm_keyfile.c). Absent when no leaf
+ *                       was set. The device factor of the encrypted root:
  *                       this TPM, unchanged firmware, option ROMs and
  *                       Secure Boot keys.
  */

@@ -7,47 +7,28 @@
 /*
  * tpm_keyfile.c -- the GELI key file the TPM releases (tpm_keyfile.h).
  *
- * Runs first in the KERNEL phase, once: the kernel is loaded, so a
- * buffer can become a preloaded file (file_addbuf), and the derivation
- * (geli_keys.c, from the dialog geli_open.c) has not run yet, so it sees
- * the file. The bytes live in the loader only as long as it takes to
- * copy them into the preload area; the kernel's g_eli reads the same
- * file.
+ * Runs from the dialog, once per typed line, until the file is placed:
+ * the kernel is loaded, so a buffer can become a preloaded file
+ * (file_addbuf), and the derivation (geli_keys.c) runs right after, so
+ * it sees the file. The bytes live in the loader only as long as it
+ * takes to copy them into the preload area; the kernel's g_eli reads the
+ * same file.
  */
 
 #include <stand.h>
 #include <string.h>
 #include <bootstrap.h>			/* file_findfile, file_addbuf */
 
+#include <crypto/sha2/sha256.h>
+
 #include "tpm.h"
 #include "tpm_keyfile.h"
+#include "evidence.h"
 
 #define	TPM_KEYFILE_MAX		128	/* a sealed blob is at most 128 bytes */
 #define	TPM_KEYFILE_PROVLEN	16
 
 static struct tpm_keyfile_state st;
-
-/* "0,2,7" -> bit mask of the PCR selection (SHA256 bank, 24 PCRs). */
-static bool
-parse_pcrs(const char *s, uint32_t *mask)
-{
-	unsigned long v;
-	char *end;
-
-	*mask = 0;
-	while (*s != '\0') {
-		v = strtoul(s, &end, 10);
-		if (end == s || v > 23)
-			return (false);
-		*mask |= 1u << v;
-		s = end;
-		if (*s == ',')
-			s++;
-		else if (*s != '\0')
-			return (false);
-	}
-	return (*mask != 0);
-}
 
 /* The next free key file index of a provider: after the ones preloaded. */
 static int
@@ -69,31 +50,86 @@ next_index(const char *prov)
 	}
 }
 
-void
-tpm_keyfile_prepare(void)
+/* A hex digest baseline into bytes; false when the macro is not set or malformed. */
+static bool
+key_digest_baseline(uint8_t out[SHA256_DIGEST_LENGTH])
 {
-	static bool tried;
+#ifdef LOADER_TRUST_TPM_KEY_DIGEST
+	static const char hex[] = LOADER_TRUST_TPM_KEY_DIGEST;
+	unsigned int i, v;
+
+	if (strlen(hex) != 2 * SHA256_DIGEST_LENGTH)
+		return (false);
+	for (i = 0; i < 2 * SHA256_DIGEST_LENGTH; i++) {
+		char c = hex[i];
+
+		if (c >= '0' && c <= '9')
+			v = c - '0';
+		else if (c >= 'a' && c <= 'f')
+			v = c - 'a' + 10;
+		else if (c >= 'A' && c <= 'F')
+			v = c - 'A' + 10;
+		else
+			return (false);
+		out[i / 2] = (uint8_t)((i % 2 == 0) ? v << 4 : out[i / 2] | v);
+	}
+	return (true);
+#else
+	(void)out;
+	return (false);
+#endif
+}
+
+static void
+hex_publish(const char *name, const uint8_t *d, size_t len)
+{
+	static const char hx[] = "0123456789abcdef";
+	char buf[2 * SHA256_DIGEST_LENGTH + 1];
+	size_t i;
+
+	for (i = 0; i < len && i < SHA256_DIGEST_LENGTH; i++) {
+		buf[2 * i] = hx[d[i] >> 4];
+		buf[2 * i + 1] = hx[d[i] & 0x0f];
+	}
+	buf[2 * i] = '\0';
+	setenv(name, buf, 1);
+}
+
+void
+tpm_keyfile_prepare(const char *passphrase)
+{
+	const char *kh = getenv("loader.trust.tpm.key.handle");
 	const char *h = getenv("loader.trust.tpm.keyfile.handle");
+	const char *hd = getenv("loader.trust.tpm.keyfile.duress");
 	const char *p = getenv("loader.trust.tpm.keyfile.providers");
 	const char *pc = getenv("loader.trust.tpm.keyfile.pcrs");
-	uint8_t secret[TPM_KEYFILE_MAX];
+	const char *nv = getenv("loader.trust.tpm.duress.nv");
+	uint8_t secret[TPM_KEYFILE_MAX], auth[SHA256_DIGEST_LENGTH];
+	uint8_t kd[SHA256_DIGEST_LENGTH], *kdp = NULL;
 	char prov[TPM_KEYFILE_PROVLEN], type[TPM_KEYFILE_PROVLEN + 24];
 	const char *q;
 	char *end;
-	unsigned long handle;
+	unsigned long keyhandle, handle, duress = 0, nvindex = 0;
 	uint32_t mask;
 	size_t len, n;
+	SHA256_CTX ctx;
+	bool duress_opened = false;
 
-	if (tried)
-		return;
-	tried = true;
-	if (h == NULL && p == NULL && pc == NULL) {
+	if (st.unsealed)
+		return;				/* placed on an earlier line */
+	memset(&st, 0, sizeof(st));
+	if (kh == NULL && h == NULL && p == NULL && pc == NULL) {
 		st.reason = "not configured";
 		return;
 	}
 	st.configured = true;
-	if (h == NULL || p == NULL || pc == NULL) {
-		st.reason = "incomplete: handle, providers and pcrs";
+	if (kh == NULL || h == NULL || p == NULL || pc == NULL) {
+		st.reason = "incomplete: key.handle, keyfile.handle, providers and pcrs";
+		return;
+	}
+	keyhandle = strtoul(kh, &end, 0);
+	if (end == kh || *end != '\0' || keyhandle > 0xffffffffUL) {
+		st.reason = "bad key.handle";
 		return;
 	}
 	handle = strtoul(h, &end, 0);
@@ -101,15 +137,53 @@ tpm_keyfile_prepare(void)
 		st.reason = "bad handle";
 		return;
 	}
-	if (!parse_pcrs(pc, &mask)) {
+	if (hd != NULL) {
+		duress = strtoul(hd, &end, 0);
+		if (end == hd || *end != '\0' || duress > 0xffffffffUL) {
+			st.reason = "bad duress handle";
+			return;
+		}
+	}
+	if (nv != NULL) {
+		nvindex = strtoul(nv, &end, 0);
+		if (end == nv || *end != '\0' || nvindex > 0xffffffffUL) {
+			st.reason = "bad duress.nv";
+			return;
+		}
+	}
+	if (!tpm_parse_pcrs(pc, &mask)) {
 		st.reason = "bad pcrs";
 		return;
 	}
-	if (!tpm_unseal((uint32_t)handle, mask, secret, sizeof(secret), &len)) {
-		st.reason = tpm_last_error();
-		return;
+	if (tpm_key_digest((uint32_t)keyhandle, kd))
+		hex_publish("loader.trust.tpm.key.sha256", kd, sizeof(kd));
+	if (key_digest_baseline(kd)) {
+		kdp = kd;
+		st.verified = true;
 	}
+	/* the auth value: SHA256 of the line, what tpm2_create -p hex: took */
+	SHA256_Init(&ctx);
+	SHA256_Update(&ctx, passphrase, strlen(passphrase));
+	SHA256_Final(auth, &ctx);
+	if (!tpm_unseal((uint32_t)keyhandle, kdp, (uint32_t)handle, mask,
+	    auth, sizeof(auth), secret, sizeof(secret), &len)) {
+		const char *why = tpm_last_error();
+
+		if (duress == 0 || !tpm_unseal((uint32_t)keyhandle, kdp, (uint32_t)duress,
+		    mask, auth, sizeof(auth), secret, sizeof(secret), &len)) {
+			st.reason = why;
+			explicit_bzero(auth, sizeof(auth));
+			return;
+		}
+		duress_opened = true;
+	}
+	explicit_bzero(auth, sizeof(auth));
 	st.unsealed = true;
+	if (duress_opened) {
+		evidence_set_duress();
+		if (nvindex != 0)
+			(void)tpm_nv_policy_increment((uint32_t)keyhandle, (uint32_t)nvindex);
+	}
 	st.reason = *p == '\0' ? "unsealed, no provider named" : "ok";
 	for (q = p; *q != '\0'; ) {
 		while (*q == ' ')

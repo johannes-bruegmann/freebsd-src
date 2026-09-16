@@ -153,8 +153,12 @@ struct measurement
 measure_pcr(int argc __unused, CHAR16 *argv[] __unused)
 {
 	struct measurement m = { .name = "PcrBank", .type = MEAS_SHA256 };
+	const char *sel = getenv("loader.trust.pcr.require");
+	uint32_t mask = 0xff;			/* PCR 0..7 unless the leaf selects */
 
-	if (tpm_pcr_bank(m.value.digest))
+	if (sel != NULL && !tpm_parse_pcrs(sel, &mask))
+		return (m);			/* a leaf that does not parse: absent */
+	if (tpm_pcr_bank(mask, m.value.digest))
 		m.present = true;
 	return (m);
 }
@@ -287,8 +291,9 @@ diagnose_tpm_keyfile(int argc __unused, CHAR16 *argv[] __unused,
 	const struct tpm_keyfile_state *s = tpm_keyfile_state();
 
 	d->leaf = "tpm.keyfile";
-	snprintf(d->text, sizeof(d->text), "unsealed=%u,providers=%u,added=%u,%s",
+	snprintf(d->text, sizeof(d->text), "unsealed=%u,providers=%u,added=%u,key=%s,%s",
 	    s->unsealed ? 1 : 0, s->providers, s->added,
+	    s->verified ? "verified" : "unverified",
 	    s->reason != NULL ? s->reason : "not asked");
 }
 

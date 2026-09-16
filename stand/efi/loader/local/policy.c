@@ -24,13 +24,6 @@
 #include "policy.h"
 #include "evidence.h"
 #include "record.h"
-#include "tpm_keyfile.h"
-#include "geli_open.h"
-#include "tpm_keyfile.h"
-#include "geli_open.h"
-#include "tpm_keyfile.h"
-#include "geli_open.h"
-#include "tpm_keyfile.h"
 #include "geli_open.h"
 
 /* --- firing predicates (open catalog) --- */
@@ -99,6 +92,12 @@ when_prompted(const struct appraisal *a __unused)
 	return (evidence()->prompted > 0);
 }
 
+bool
+when_duress(const struct appraisal *a __unused)
+{
+	return (evidence()->duress);
+}
+
 /* --- execution --- */
 
 void
@@ -131,6 +130,8 @@ record_flags(void)
 
 	if (e->taint)
 		f |= RECORD_F_TAINT;
+	if (e->duress)
+		f |= RECORD_F_DURESS;
 	if (e->prompted > 0)
 		f |= RECORD_F_PROMPTED;
 	return (f);
@@ -151,16 +152,16 @@ local_run(enum phase ph, int argc, CHAR16 *argv[])
 
 	evidence_args(argc, argv);
 	/*
-	 * KERNEL: the device factor first -- the TPM releases the key file
-	 * under its PCR policy before any gate measures and before anything
-	 * is asked (tpm_keyfile.h). The gates then measure; none of them
-	 * halts or asks for a password. The record loads at its first claim
-	 * (record_state), which runs the one dialog of the boot (geli_open.c)
-	 * if it has not run; the dialog runs at the latest after the
-	 * policies, so the kernel always gets its keys.
+	 * KERNEL: the gates measure; none of them halts or asks for a
+	 * password (unlock_act, bound where the owner wants an informed
+	 * decision, is the one exception, and it compares the one hash
+	 * left). The record loads at its first claim (record_state), which
+	 * runs the one dialog of the boot (geli_open.c) if it has not run:
+	 * the line goes to the TPM, which decides by PCR policy and auth
+	 * value which object opens (tpm_keyfile.c), then to GELI. The dialog
+	 * runs at the latest after the policies, so the kernel always gets
+	 * its keys.
 	 */
-	if (ph == PHASE_KERNEL)
-		tpm_keyfile_prepare();
 	for (p = phase_policies(ph); p->gate != NULL; p++)
 		policy_run(ph, p, argc, argv);
 	for (p = phase_policies(post); p->gate != NULL; p++)

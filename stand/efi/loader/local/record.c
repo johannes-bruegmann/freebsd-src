@@ -37,10 +37,6 @@
 #include "record.h"
 #include "geli_keys.h"
 #include "geli_open.h"
-#include "geli_keys.h"
-#include "geli_open.h"
-#include "geli_keys.h"
-#include "geli_open.h"
 #include "action.h"		/* readsecret */
 #include "geliboot.h"		/* geli_ikm_digest */
 
