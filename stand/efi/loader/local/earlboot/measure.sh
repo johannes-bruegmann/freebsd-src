@@ -51,10 +51,14 @@ measure_securelevel() {
 }
 
 # measure_veriexec -- mac_veriexec state (loaded, active, enforce) as the
-# kernel reports it; absent when the module is not loaded. Assumes the
-# kernel carries mac_veriexec (Entscheid 3, 04.09.).
+# kernel reports it; absent when the module is not loaded. An empty state
+# string is the loaded module with no flag set: "inactive" (illyria
+# 17.09.: the claim fell on every boot against an empty value). Assumes
+# the kernel carries mac_veriexec (Entscheid 3, 04.09.).
 measure_veriexec() {
-	$SYSCTL -n security.mac.veriexec.state 2>/dev/null
+	local s
+	s=$($SYSCTL -n security.mac.veriexec.state 2>/dev/null) || return 0
+	printf '%s\n' "${s:-inactive}"
 }
 
 # measure_bootlock -- 1 iff mac_bootlock is loaded (loader.trust.* immutable)

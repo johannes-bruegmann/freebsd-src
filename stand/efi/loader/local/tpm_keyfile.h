@@ -31,10 +31,11 @@
  * values live in the TPM (JB 16.09., Konzept loader-drei-faktoren).
  *
  * Leafs, loader.trust.tpm.*: key.handle (the storage key the sessions
- * salt to, 0x81000001), keyfile.handle (0x81010001), keyfile.duress
- * (0x81010002; optional), keyfile.providers (nda0p1 nda2p1; empty:
- * unseal only), keyfile.pcrs (0,2,7), duress.nv (the counter index;
- * optional). The baseline LOADER_TRUST_TPM_KEY_DIGEST pins the storage
+ * salt to, 0x81000001), keyfile.handles ("0x81010001 0x81010002": the
+ * owner's object, then the one whose opening counts -- the role is the
+ * position, no leaf names it), keyfile.providers (nda0p1 nda2p1; empty:
+ * unseal only), keyfile.pcrs (0,2,7), counter.nv (the increment-only
+ * index; optional). The baseline LOADER_TRUST_TPM_KEY_DIGEST pins the storage
  * key; without it the key is used unverified and the diagnosis says so;
  * the digest is published as loader.trust.tpm.key.sha256 to be learned.
  * A leaf that does not parse, a TPM that refuses, a provider that cannot

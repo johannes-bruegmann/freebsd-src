@@ -88,11 +88,10 @@ void
 tpm_keyfile_prepare(const char *passphrase)
 {
 	const char *kh = getenv("loader.trust.tpm.key.handle");
-	const char *h = getenv("loader.trust.tpm.keyfile.handle");
-	const char *hd = getenv("loader.trust.tpm.keyfile.duress");
+	const char *h = getenv("loader.trust.tpm.keyfile.handles");
 	const char *p = getenv("loader.trust.tpm.keyfile.providers");
 	const char *pc = getenv("loader.trust.tpm.keyfile.pcrs");
-	const char *nv = getenv("loader.trust.tpm.duress.nv");
+	const char *nv = getenv("loader.trust.tpm.counter.nv");
 	uint8_t secret[TPM_KEYFILE_MAX], auth[SHA256_DIGEST_LENGTH];
 	uint8_t kd[SHA256_DIGEST_LENGTH], *kdp = NULL;
 	char prov[TPM_KEYFILE_PROVLEN], type[TPM_KEYFILE_PROVLEN + 24];
@@ -113,7 +112,7 @@ tpm_keyfile_prepare(const char *passphrase)
 	}
 	st.configured = true;
 	if (kh == NULL || h == NULL || p == NULL || pc == NULL) {
-		st.reason = "incomplete: key.handle, keyfile.handle, providers and pcrs";
+		st.reason = "incomplete: key.handle, keyfile.handles, providers and pcrs";
 		return;
 	}
 	keyhandle = strtoul(kh, &end, 0);
@@ -121,22 +120,27 @@ tpm_keyfile_prepare(const char *passphrase)
 		st.reason = "bad key.handle";
 		return;
 	}
+	/* handles: the object of the owner's line, then the one whose opening counts */
 	handle = strtoul(h, &end, 0);
-	if (end == h || *end != '\0' || handle > 0xffffffffUL) {
-		st.reason = "bad handle";
+	if (end == h || (*end != '\0' && *end != ' ') || handle > 0xffffffffUL) {
+		st.reason = "bad handles";
 		return;
 	}
-	if (hd != NULL) {
-		duress = strtoul(hd, &end, 0);
-		if (end == hd || *end != '\0' || duress > 0xffffffffUL) {
-			st.reason = "bad duress handle";
+	while (*end == ' ')
+		end++;
+	if (*end != '\0') {
+		const char *h2 = end;
+
+		duress = strtoul(h2, &end, 0);
+		if (end == h2 || *end != '\0' || duress > 0xffffffffUL) {
+			st.reason = "bad handles";
 			return;
 		}
 	}
 	if (nv != NULL) {
 		nvindex = strtoul(nv, &end, 0);
 		if (end == nv || *end != '\0' || nvindex > 0xffffffffUL) {
-			st.reason = "bad duress.nv";
+			st.reason = "bad counter.nv";
 			return;
 		}
 	}
