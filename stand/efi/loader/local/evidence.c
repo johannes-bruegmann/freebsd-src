@@ -57,15 +57,16 @@ evidence_note_appraisal(unsigned int phase, const struct appraisal *a)
 	}
 	/*
 	 * The verdict stays FAIL when nothing was checked (gate.c: silence is
-	 * not trust, when_fail fires), but the ledger counts
-	 * and taints only a gate that saw a claim FAIL: a gate whose every claim
-	 * was skipped -- the answer classes on a boot without a prompt -- is
-	 * unmeasured, not broken, and the book says "skipped", not "failed".
+	 * not trust, when_fail fires), but the ledger counts only a gate that
+	 * saw a claim FAIL: a gate whose every claim was skipped -- the answer
+	 * classes on a boot without a prompt -- is unmeasured, not broken, and
+	 * the book says "skipped", not "failed". Counting is measurement;
+	 * TAINTING is a decision, taint_act's alone (JB 17.09.: a mistyped
+	 * boot answer failed kernelpost and, through the implicit taint, the
+	 * custody gate of every boot -- a tell is not a tamper).
 	 */
-	if (a->verdict == VERDICT_FAIL && e->failed > 0) {
+	if (a->verdict == VERDICT_FAIL && e->failed > 0)
 		E.failed_gates++;
-		E.taint = true;
-	}
 }
 
 /* The interactive members of the catalog: their run is itself evidence. */

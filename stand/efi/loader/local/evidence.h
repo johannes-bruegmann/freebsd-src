@@ -49,7 +49,7 @@ struct evidence {
 	uint64_t		 prompt_ms;	/* summed dwell at prompts */
 	uint64_t		 cadence_ms;	/* longest pause between two keys */
 	bool			 duress;	/* the TPM opened the duress object */
-	bool			 taint;		/* taint_act or a failed gate */
+	bool			 taint;		/* taint_act fired (a policy decision) */
 	bool			 silence;	/* silence_act: no publish */
 	int			 argc;		/* the LoadOptions, kept from BOOT */
 	CHAR16			**argv;

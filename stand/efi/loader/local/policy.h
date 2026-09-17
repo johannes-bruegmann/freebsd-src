@@ -102,8 +102,8 @@ struct policy {
  *                 observer cannot time. Noise, not cryptography -- a xorshift
  *                 PRNG seeded from the cycle counter. Only ever ADDS a spot
  *                 check; no critical check may exist solely behind it.
- *   when_tainted  the evidence ledger carries a taint (taint_act fired, or
- *                 an earlier phase failed)
+ *   when_tainted  the evidence ledger carries a taint (taint_act fired in
+ *                 this or an earlier phase)
  *   when_prompted an interactive action ran in this or an earlier phase
  *   when_duress   the TPM opened the duress object for the typed line
  *                 (tpm_keyfile.h). Bind only SILENT actions here: the
