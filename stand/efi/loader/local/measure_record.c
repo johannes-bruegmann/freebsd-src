@@ -216,7 +216,8 @@ diagnose_record(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 	snprintf(d->text, sizeof(d->text),
 	    "geli=%s,counter=%llu,last=%s,bootms=%llu,flags=%u,chain=%s", fp,
 	    (unsigned long long)rs->prev.counter, iso,
-	    (unsigned long long)rs->prev.boot_ms, rs->prev.flags,
+	    (unsigned long long)rs->prev.boot_ms,
+	    (unsigned int)(rs->prev.flags & ~RECORD_F_DURESS),	/* the duress bit stays in the word (illyria 17.09.: flags=7 in kenv) */
 	    rs->medium_answered ? (rs->chain_on_medium ? "match" : "differs") :
 	    "unread");
 }
