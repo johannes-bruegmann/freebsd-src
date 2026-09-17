@@ -15,8 +15,10 @@
 #ifndef _LOCAL_GELI_KEYS_H_
 #define	_LOCAL_GELI_KEYS_H_
 
-/* Derive for every GELI provider seen; the number that opened. */
-unsigned int	 geli_keys_prepare(const char *passphrase);
+/* Derive for every GELI provider seen; the number that opened. With
+ * keyfiles_only (the TPM released its file) the slot of key files alone
+ * is tried first, before the passphrase slots. */
+unsigned int	 geli_keys_prepare(const char *passphrase, bool keyfiles_only);
 /* Why the last attempt ended as it did (diagnose_record, the dialog). */
 const char	*geli_keys_reason(void);
 

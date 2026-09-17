@@ -11,7 +11,9 @@
  * the three factors as they are -- the passphrase (knowledge), the key
  * file on the medium (possession), the key file the TPM released
  * (this device, unchanged firmware) -- to the encrypted providers
- * (geli_keys.c). A provider that opens is the only proof there is; a
+ * (geli_keys.c): with the TPM's file the disk's slot of key files alone
+ * opens, and the typed line was the TPM's to judge -- the owner's and the
+ * duress passphrase both end at the same disk. A provider that opens is the only proof there is; a
  * hash to compare against would be a hash an attacker can compare
  * against, at home, with a passphrase in hand. Wrong: asked again, up
  * to loader.trust.geli.tries (default 3); then the boot halts, and the
