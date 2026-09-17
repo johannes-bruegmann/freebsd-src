@@ -50,29 +50,18 @@ next_index(const char *prov)
 	}
 }
 
-/* A hex digest baseline into bytes; false when the macro is not set or malformed. */
+/* The storage key's digest baseline (site mk renders a digest as a byte
+ * list, 0x.., 0x.. -- the form the MEASUREMENT_SHA256 initializers take);
+ * false when the macro is not set or not 32 bytes. */
 static bool
 key_digest_baseline(uint8_t out[SHA256_DIGEST_LENGTH])
 {
 #ifdef LOADER_TRUST_TPM_KEY_DIGEST
-	static const char hex[] = LOADER_TRUST_TPM_KEY_DIGEST;
-	unsigned int i, v;
+	static const uint8_t d[] = { LOADER_TRUST_TPM_KEY_DIGEST };
 
-	if (strlen(hex) != 2 * SHA256_DIGEST_LENGTH)
+	if (sizeof(d) != SHA256_DIGEST_LENGTH)
 		return (false);
-	for (i = 0; i < 2 * SHA256_DIGEST_LENGTH; i++) {
-		char c = hex[i];
-
-		if (c >= '0' && c <= '9')
-			v = c - '0';
-		else if (c >= 'a' && c <= 'f')
-			v = c - 'a' + 10;
-		else if (c >= 'A' && c <= 'F')
-			v = c - 'A' + 10;
-		else
-			return (false);
-		out[i / 2] = (uint8_t)((i % 2 == 0) ? v << 4 : out[i / 2] | v);
-	}
+	memcpy(out, d, sizeof(d));
 	return (true);
 #else
 	(void)out;
