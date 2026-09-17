@@ -29,6 +29,7 @@ SRCS=	autoload.c \
 	decompress.c \
 	efi_main.c \
 	framebuffer.c \
+	tpm.c \
 	main.c \
 	memdisk.c \
 	self_reloc.c \

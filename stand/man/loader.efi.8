@@ -384,6 +384,66 @@ available to the kernel.
 Which means that programs like
 .Xr efibootmgr 8
 will not work.
+.Ss TPM 2.0
+On a machine with a TPM 2.0 the firmware offers the TCG2 protocol, and the
+.Ic tpm
+command reads the TPM through it:
+.Bl -tag -width "tpm unseal handle list type"
+.It Ic tpm clock
+Prints the TPM's clock: the reset count (power cycles), the restart count
+(resumes since the last reset), the clock in milliseconds and whether it is
+safe (known not to have gone backwards).
+The values are set as
+.Va tpm.reset ,
+.Va tpm.restart ,
+.Va tpm.clock
+and
+.Va tpm.safe .
+.It Ic tpm pcr Op Ar list
+Prints the SHA256 bank of the PCRs in
+.Ar list
+.Pq default 0..7 ,
+each in hex, and their SHA256, which is set as
+.Va tpm.pcr.sha256 :
+a value that names the state of the selected registers in one line, to be
+compared with a baseline the owner took.
+.It Ic tpm nv read Ar index
+.It Ic tpm nv increment Ar index
+.It Ic tpm nv define Ar index
+An 8-byte counter NV index under the owner hierarchy (empty owner password):
+read it, increment it, define it once.
+.It Ic tpm unseal Ar handle Ar list Ar type Op Fl a
+Unseals the persistent object
+.Ar handle
+under a policy session that asserts
+.Ic PolicyPCR
+over the PCRs in
+.Ar list ,
+and makes the released bytes a preloaded file of
+.Ar type ,
+as
+.Ic load Fl t
+would.
+With
+.Fl a
+a passphrase is read hidden from the console and its SHA256 is the object's
+auth value
+.Pq Ic PolicyAuthValue .
+The one use in mind: a GELI key file that the TPM releases only when the
+firmware measured the boot the owner sealed it under.
+Sealed with
+.Xr tpm2_create 1
+under a PCR policy and made persistent, it is loaded by
+.Dl tpm unseal 0x81010001 0,2,7 nda0p1:geli_keyfile1
+before the kernel, next to the key file
+.Va geli_nda0p1_keyfile0_load
+preloads, and
+.Xr geli 8
+takes both.
+.El
+The session is neither salted nor bound: the bytes cross the TPM bus as the
+TPM returns them, as with a plain
+.Xr tpm2_unseal 1 .
 .Sh FILES
 .Bl -tag -width "/boot/loader.efi"
 .It Pa /boot/loader.efi
