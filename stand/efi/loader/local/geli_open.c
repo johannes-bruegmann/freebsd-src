@@ -62,7 +62,7 @@ geli_open_ensure(void)
 		readsecret(pw, sizeof(pw));
 		printf("\n");
 		tpm_keyfile_prepare(pw);	/* the TPM checks the line and releases its file */
-		if (geli_keys_prepare(pw) > 0) {
+		if (geli_keys_prepare(pw, tpm_keyfile_state()->unsealed) > 0) {
 			explicit_bzero(pw, sizeof(pw));
 			opened = true;
 			return;

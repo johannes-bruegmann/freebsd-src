@@ -50,6 +50,7 @@ struct taste_ctx {
 	u_int		 secsz;
 	uint64_t	 base;		/* partition start, bytes */
 	const char	*passphrase;
+	bool		 keyfiles_only;	/* the TPM released its file: a slot of key files alone (setkey -P) first */
 	int		 unit;
 	unsigned int	 opened;	/* GELI partitions whose key derived */
 	bool		 tasted;	/* a GELI partition was seen */
@@ -218,7 +219,7 @@ keys_hmac_keyfiles(struct hmac_ctx *ctx, const char *prov)
  */
 static bool
 keys_derive(const struct g_eli_metadata *md, const char *passphrase,
-    const char *name, daddr_t lastsector)
+    bool keyfiles_only, const char *name, daddr_t lastsector)
 {
 	char provs[KEYS_PROVIDERS][KEYS_PROVLEN];
 	u_char dkey[G_ELI_USERKEYLEN], key[G_ELI_USERKEYLEN];
@@ -227,12 +228,30 @@ keys_derive(const struct g_eli_metadata *md, const char *passphrase,
 	u_int keynum;
 	unsigned int np, g;
 	int nfiles[KEYS_PROVIDERS];
-	bool ok = false;
+	bool ok = false, files = false;
 
 	np = keys_providers(provs);
 	for (g = 0; g < np; g++)
 		nfiles[g] = 0;
-	if (md->md_iterations > 0) {
+	/*
+	 * The slot of key files alone (geli setkey -P): the passphrase is
+	 * the TPM's to judge, the disk takes the medium's file and the TPM's
+	 * (JB 17.09.: the duress passphrase must open the disk too, and GELI
+	 * has two slots -- the second is the recovery passphrase). Tried
+	 * first, before the PBKDF2 the other slots cost.
+	 */
+	for (g = 0; g < np && !ok && keyfiles_only; g++) {
+		g_eli_crypto_hmac_init(&ctx, NULL, 0);
+		nfiles[g] = keys_hmac_keyfiles(&ctx, provs[g]);
+		if (nfiles[g] <= 0)
+			continue;
+		g_eli_crypto_hmac_final(&ctx, key, 0);
+		if (g_eli_mkey_decrypt_any(md, key, mkey, &keynum) == 0) {
+			geli_add_key(key);
+			ok = files = true;
+		}
+	}
+	if (md->md_iterations > 0 && !ok) {
 		printf("platform trust: deriving the key of %s (%d iterations)...\n",
 		    name, md->md_iterations);
 		pkcs5v2_genkey(dkey, sizeof(dkey), md->md_salt,
@@ -271,7 +290,7 @@ keys_derive(const struct g_eli_metadata *md, const char *passphrase,
 	    "off", np);
 	for (g = 0; g < np; g++)
 		keys_note("%c%s:%d", g ? ',' : ':', provs[g], nfiles[g]);
-	keys_note(",%s)", ok ? "key" : "nokey");
+	keys_note(",%s)", ok ? (files ? "keyfiles" : "key") : "nokey");
 	return (ok);
 }
 
@@ -293,7 +312,7 @@ keys_partition(void *arg, const char *partname __unused,
 	c->tasted = true;
 	c->gelis++;
 	snprintf(name, sizeof(name), "disk%dp%d", c->unit, part->index);
-	if (keys_derive(&md, c->passphrase, name, lastsector))
+	if (keys_derive(&md, c->passphrase, c->keyfiles_only, name, lastsector))
 		c->opened++;
 	else
 		c->badkey = true;
@@ -308,7 +327,7 @@ keys_partition(void *arg, const char *partname __unused,
  * asks, the disks and the PBKDF2 cost are paid once (11.09.).
  */
 unsigned int
-geli_keys_prepare(const char *passphrase)
+geli_keys_prepare(const char *passphrase, bool keyfiles_only)
 {
 	struct taste_ctx c;
 	struct ptable *table;
@@ -319,6 +338,7 @@ geli_keys_prepare(const char *passphrase)
 	memset(&c, 0, sizeof(c));
 	keys_seen[0] = '\0';
 	c.passphrase = passphrase;
+	c.keyfiles_only = keyfiles_only;
 	for (unit = 0; unit < KEYS_DISKS; unit++) {
 		snprintf(devname, sizeof(devname), "disk%d:", unit);
 		c.fd = open(devname, O_RDONLY);
