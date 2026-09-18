@@ -26,6 +26,19 @@ measure_word() {
 	printf '%s\n' "$ELV_WORD_OK"
 }
 
+# measure_gate_clean <gate> -- 1 iff the loader gate published an empty
+# failed list, 0 with a name in it, absent when the gate published nothing.
+# The tells (Attempts, PromptWindow of kernelpost) are notes for the owner,
+# not verdicts on the boot: a claim over this, bound to spool and mark,
+# keeps them where the owner reads them (JB 18.09.).
+measure_gate_clean() {
+	local f
+	f=$($KENV -q "loader.trust.$1.failed" 2>/dev/null) || return 0
+	if [ -z "$f" ]; then printf '1\n'; else printf '0\n'; fi
+}
+# diagnose_gate_clean <gate> -- the failed list as published
+diagnose_gate_clean() { $KENV -q "loader.trust.$1.failed" 2>/dev/null; }
+
 # measure_flag_taint <gate> -- the taint bit the handover word carried (0/1),
 # only meaningful when the word verified
 measure_flag_taint() {

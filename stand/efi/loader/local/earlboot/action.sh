@@ -22,12 +22,22 @@ elv_finding() {
 # log_act -- syslog, the baseline record
 log_act() {
 	$LOGGER -t elvboot -p security.notice "$(elv_finding "$1")"
+	# earlboot runs before syslogd: the line above reaches nobody. It is
+	# kept for elvbootd's replay_act (STARTUP, syslogd up), which re-logs
+	# every kept line and removes the file (illyria 18.09.: no fish line
+	# in any log although the gate had passed).
+	$MKDIR -p "$ELV_STATE"
+	elv_finding "$1" >> "$ELV_STATE/pending-log"
 }
 
 # console_act -- immediate human visibility: console line + wall. Never for
 # duress (the coercer reads the console too).
 console_act() {
 	elv_finding "$1" | $TEE /dev/console 2>/dev/null | $WALL 2>/dev/null
+	# before the login nobody reads the console: kept for elvbootd's
+	# notice_act, which puts the lines into /var/run/motd for the next login
+	$MKDIR -p "$ELV_STATE"
+	elv_finding "$1" >> "$ELV_STATE/pending-console"
 }
 
 # spool_act -- append the finding to the append-only spool. Assumes
@@ -173,7 +183,28 @@ quarantine_act() {
 # shutdown_act -- the hard stop: continuing to run is worse than stopping
 shutdown_act() {
 	elv_finding "$1" > /dev/console
+	halt_count_act "$1"
 	$SHUTDOWN -p now "elvboot: $1"
+}
+
+# halt_count_act <gate> -- raise the increment-only NV index
+# loader.trust.halt.nv before the halt: the trace of a halt nobody
+# lowers, which the loader's HaltQuiet claim reads on the next boot (its
+# expectation is learned, so the boot after a halt fails it until the
+# owner relearns). The index authorizes by PolicyCommandCode(NV_Increment),
+# so anyone may raise it, nobody may write a value. Without the leaf, or
+# without the tools, nothing happens (JB 18.09.: a probe must leave a mark).
+halt_count_act() {
+	local nv s
+	nv=$($KENV -q loader.trust.halt.nv 2>/dev/null) || return 0
+	[ -n "$nv" ] || return 0
+	s="$ELV_STATE/halt.session"
+	TPM2TOOLS_TCTI=device:/dev/tpm0; export TPM2TOOLS_TCTI
+	$TPM2_STARTAUTHSESSION --policy-session --session="$s" >/dev/null 2>&1 || return 0
+	$TPM2_POLICYCOMMANDCODE --session="$s" TPM2_CC_NV_Increment >/dev/null 2>&1 || { $TPM2_FLUSHCONTEXT "$s" >/dev/null 2>&1; return 0; }
+	$TPM2_NVINCREMENT "$nv" --auth="session:$s" >/dev/null 2>&1
+	$TPM2_FLUSHCONTEXT "$s" >/dev/null 2>&1
+	$RM -f "$s"
 }
 
 # poweroff_act -- immediate power off, no grace

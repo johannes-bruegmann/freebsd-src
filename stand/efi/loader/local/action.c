@@ -84,6 +84,11 @@ readsecret(char *buf, size_t sz)
 		}
 		first = false;
 		tprev = tk;
+		if (c == '\b' || c == 0x7f) {	/* backspace edits the line (18.09.) */
+			if (n > 0)
+				buf[--n] = '\0';
+			continue;
+		}
 		if (n + 1 < sz)
 			buf[n++] = c;
 	}
@@ -105,9 +110,15 @@ readsecret_confirm(char *buf, size_t sz)
 
 	while (ischar())
 		(void)getchar();
-	while ((c = getchar()) != '\r' && c != '\n' && c != -1)
+	while ((c = getchar()) != '\r' && c != '\n' && c != -1) {
+		if (c == '\b' || c == 0x7f) {
+			if (n > 0)
+				buf[--n] = '\0';
+			continue;
+		}
 		if (n + 1 < sz)
 			buf[n++] = c;
+	}
 	buf[n] = '\0';
 }
 

@@ -235,6 +235,12 @@ struct measurement	measure_gpt(int argc, CHAR16 *argv[]);
  *                       move it. Read-only use of the TPM: no sealing, no
  *                       key material.
  * measure_nvme          1 iff an NVMe answered the SMART log page
+ * measure_halt          sha256 over the NV counter loader.trust.halt.nv
+ *                       that earlboot's shutdown_act raises before a
+ *                       halt; the expectation halt.expected is learned
+ *                       (key), so the boot after a halt fails it until the
+ *                       owner relearns -- a probe leaves a trace nobody
+ *                       lowers. Absent without the leaf
  * measure_tpm_keyfile   1 iff the TPM released the sealed GELI key file
  *                       for the typed passphrase under its PCR policy
  *                       and every named provider got it as a preloaded
@@ -245,6 +251,7 @@ struct measurement	measure_gpt(int argc, CHAR16 *argv[]);
  */
 struct measurement	measure_record(int argc, CHAR16 *argv[]);
 struct measurement	measure_tpm_keyfile(int argc, CHAR16 *argv[]);
+struct measurement	measure_halt(int argc, CHAR16 *argv[]);
 struct measurement	measure_counter_step(int argc, CHAR16 *argv[]);
 struct measurement	measure_chain(int argc, CHAR16 *argv[]);
 struct measurement	measure_lastboot_gap(int argc, CHAR16 *argv[]);
@@ -320,6 +327,7 @@ struct measurement	measure_ledger_prompted(int argc, CHAR16 *argv[]);
  * diagnose_tpm                 tpm: what the TPM answered, or none(<error>)
  * diagnose_nvme                nvme: what the SMART page answered, or none
  * diagnose_tpm_keyfile         tpm.keyfile: unsealed, providers, added, why
+ * diagnose_halt                halt.count: the counter as a number
  * diagnose_time_boot           time.boot.ms: entry-to-now in milliseconds
  * diagnose_time_prompt         time.prompt: dwell, cadence, attempts
  * diagnose_time_rtc_tsc        time.now: RTC, TSC and ticks per millisecond
@@ -341,6 +349,7 @@ void	diagnose_lastboot_gap(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_tpm(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_nvme(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_tpm_keyfile(int argc, CHAR16 *argv[], struct diagnosis *);
+void	diagnose_halt(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_time_boot(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_time_prompt(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_time_rtc_tsc(int argc, CHAR16 *argv[], struct diagnosis *);

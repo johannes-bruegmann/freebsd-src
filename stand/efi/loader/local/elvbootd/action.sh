@@ -47,6 +47,47 @@ compare_media_act() {
 	fi
 }
 
+# replay_act <gate> -- re-log the lines earlboot kept while syslogd was not
+# up ($ELV_STATE/pending-log, one finding per line), then drop the file.
+# Bound in the runtime gate of STARTUP, after syslogd (rc.d: REQUIRE
+# NETWORKING). The lines carry their own timestamps.
+replay_act() {
+	local f="$ELV_STATE/pending-log" line
+	[ -f "$f" ] || return 0
+	while IFS= read -r line; do
+		[ -n "$line" ] && $LOGGER -t elvboot -p security.notice "$line"
+	done < "$f"
+	$RM -f "$f"
+}
+
+# notice_act <gate> -- what earlboot wanted the owner to see on the console
+# ($ELV_STATE/pending-console) goes into /var/run/motd, which every login
+# prints; then the file is dropped. motd(8) regenerates /var/run/motd at
+# every boot from /etc/motd.template, so the notice lives one boot.
+notice_act() {
+	local f="$ELV_STATE/pending-console"
+	[ -f "$f" ] || return 0
+	{ printf '\nelvboot -- findings of this boot:\n'; $SED 's/^/  /' "$f"; printf '\n'; } >> /var/run/motd 2>/dev/null
+	$RM -f "$f"
+}
+
+# summary_act <gate> -- one readable syslog line per boot: the loader's
+# gates (passed/failed), the record (counter, chain), the TPM key file, the
+# prompts, earlboot's custody verdict. Reads kenv and the appraisal; says
+# nothing of duress (the word carries that, the counter is the trace).
+summary_act() {
+	local gates="" failed="" g f rec tpm att custody
+	for g in bootlock loaderlock inventory strictwatch kernellock recordlock kernelpost; do
+		f=$($KENV -q "loader.trust.$g.failed" 2>/dev/null) || continue
+		if [ -z "$f" ]; then gates="$gates $g:pass"; else gates="$gates $g:fail($f)"; failed="$failed $g"; fi
+	done
+	rec=$($KENV -q loader.trust.recordlock.record 2>/dev/null)
+	tpm=$($KENV -q loader.trust.recordlock.tpm.keyfile 2>/dev/null | $SED 's/,unsealed.*//; s/.*key=//')
+	att=$($KENV -q loader.trust.kernelpost.attempts 2>/dev/null)
+	custody=$($SED -n 's/^gate=custody verdict=//p' "$ELV_STATE/appraisal-custody" 2>/dev/null)
+	$LOGGER -t elvboot -p security.notice "boot summary: gates=[${gates# }] record=[${rec:-none}] tpm.key=${tpm:-none} attempts=${att:-?} custody=${custody:-none}"
+}
+
 # sentinel_act <gate> -- the runtime watchdog: no persisted appraisal of
 # THIS boot means earlboot never ran (or was removed) -- itself a finding.
 # earlboot persists under the name of ITS gate (appraisal-custody), which
