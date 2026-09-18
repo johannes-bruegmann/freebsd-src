@@ -163,6 +163,58 @@ measure_pcr(int argc __unused, CHAR16 *argv[] __unused)
 	return (m);
 }
 
+/*
+ * HaltQuiet: sha256 over the 8-byte NV counter loader.trust.halt.nv --
+ * the index earlboot's shutdown_act raises before a halt it was bound to
+ * fire (a duress answer, a probe). The expectation is a kenv leaf the
+ * owner learns (halt.expected, from the published halt.sha256), NOT the
+ * record: a record can be deleted by root, the index cannot be lowered by
+ * anyone, and the stage keeps the reference. So the boot after a halt
+ * fails this claim until the owner relearns at the workbench -- whatever
+ * an attacker learned from the halt, the next boot says so (JB 18.09.).
+ * Absent without the leaf.
+ */
+static uint64_t halt_count;
+static bool halt_read;
+
+struct measurement
+measure_halt(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "HaltQuiet", .type = MEAS_SHA256 };
+	const char *nv = getenv("loader.trust.halt.nv");
+	unsigned long index;
+	char *end;
+	uint8_t raw[8];
+	int i;
+	SHA256_CTX ctx;
+
+	if (nv == NULL)
+		return (m);
+	index = strtoul(nv, &end, 0);
+	if (end == nv || *end != '\0' || index > 0xffffffffUL)
+		return (m);
+	if (!tpm_nv_index_read((uint32_t)index, &halt_count))
+		return (m);
+	halt_read = true;
+	for (i = 0; i < 8; i++)
+		raw[i] = (uint8_t)(halt_count >> (8 * (7 - i)));
+	SHA256_Init(&ctx);
+	SHA256_Update(&ctx, raw, sizeof(raw));
+	SHA256_Final(m.value.digest, &ctx);
+	m.present = true;
+	return (m);
+}
+
+void
+diagnose_halt(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
+{
+	d->leaf = "halt.count";
+	if (halt_read)
+		snprintf(d->text, sizeof(d->text), "%llu", (unsigned long long)halt_count);
+	else
+		snprintf(d->text, sizeof(d->text), "unread (%s)", tpm_last_error());
+}
+
 struct measurement
 measure_tpm_keyfile(int argc __unused, CHAR16 *argv[] __unused)
 {
