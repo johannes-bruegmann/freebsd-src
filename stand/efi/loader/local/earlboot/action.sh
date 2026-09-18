@@ -180,11 +180,14 @@ quarantine_act() {
 	mark_act "$1"
 }
 
-# shutdown_act -- the hard stop: continuing to run is worse than stopping
+# shutdown_act -- the hard stop: continuing to run is worse than stopping.
+# Console and broadcast say only that a policy stopped the boot; which
+# gate (an answer class, a claim) stays in the spool, root-only (JB
+# 18.09.: the line before the halt must not name the class).
 shutdown_act() {
-	elv_finding "$1" > /dev/console
+	printf 'elvboot: shutdown by policy\n' > /dev/console
 	halt_count_act "$1"
-	$SHUTDOWN -p now "elvboot: $1"
+	$SHUTDOWN -p now "elvboot: shutdown by policy"
 }
 
 # halt_count_act <gate> -- raise the increment-only NV index
@@ -195,16 +198,44 @@ shutdown_act() {
 # so anyone may raise it, nobody may write a value. Without the leaf, or
 # without the tools, nothing happens (JB 18.09.: a probe must leave a mark).
 halt_count_act() {
-	local nv s
+	local nv s i err
 	nv=$($KENV -q loader.trust.halt.nv 2>/dev/null) || return 0
 	[ -n "$nv" ] || return 0
 	s="$ELV_STATE/halt.session"
 	TPM2TOOLS_TCTI=device:/dev/tpm0; export TPM2TOOLS_TCTI
-	$TPM2_STARTAUTHSESSION --policy-session --session="$s" >/dev/null 2>&1 || return 0
-	$TPM2_POLICYCOMMANDCODE --session="$s" TPM2_CC_NV_Increment >/dev/null 2>&1 || { $TPM2_FLUSHCONTEXT "$s" >/dev/null 2>&1; return 0; }
-	$TPM2_NVINCREMENT "$nv" --auth="session:$s" >/dev/null 2>&1
-	$TPM2_FLUSHCONTEXT "$s" >/dev/null 2>&1
-	$RM -f "$s"
+	i=1
+	while [ "$i" -le 5 ]; do
+		if err=$(halt_count_once "$nv" "$s" 2>&1); then
+			halt_count_note "pass attempt=$i"
+			return 0
+		fi
+		$SLEEP 1
+		i=$((i + 1))
+	done
+	halt_count_note "fail attempts=5 error=$(printf '%s' "$err" | $TR '\n' ' ' | $HEAD -c 300)"
+}
+
+# halt_count_once <index> <session file> -- one attempt: policy session,
+# PolicyCommandCode(NV_Increment), the increment, flush; the tools' output
+# is the caller's evidence (illyria 18.09.: two probes raised nothing and
+# earlboot had swallowed the reason)
+halt_count_once() {
+	$TPM2_STARTAUTHSESSION --policy-session --session="$2" || return 1
+	if ! $TPM2_POLICYCOMMANDCODE --session="$2" TPM2_CC_NV_Increment; then
+		$TPM2_FLUSHCONTEXT "$2"; $RM -f "$2"; return 1
+	fi
+	if ! $TPM2_NVINCREMENT "$1" --auth="session:$2"; then
+		$TPM2_FLUSHCONTEXT "$2"; $RM -f "$2"; return 1
+	fi
+	$TPM2_FLUSHCONTEXT "$2"
+	$RM -f "$2"
+}
+
+# halt_count_note <text> -- the outcome into the append-only spool
+halt_count_note() {
+	$MKDIR -p "$ELV_STATE"
+	[ -f "$ELV_STATE/spool" ] || { : > "$ELV_STATE/spool"; $CHFLAGS sappnd "$ELV_STATE/spool"; }
+	printf '%s halt-count %s\n' "$($DATE -u +%Y-%m-%dT%H:%M:%SZ)" "$1" >> "$ELV_STATE/spool"
 }
 
 # poweroff_act -- immediate power off, no grace

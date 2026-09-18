@@ -205,6 +205,31 @@ measure_halt(int argc __unused, CHAR16 *argv[] __unused)
 	return (m);
 }
 
+/*
+ * halt_count_raise: NV_Increment on loader.trust.halt.nv under the storage
+ * key's salted session -- the trace of a halt the owner chooses at a
+ * report (x); the same index earlboot raises before its shutdown. Without
+ * the leafs, or with a TPM that refuses: false, nothing raised.
+ */
+bool
+halt_count_raise(void)
+{
+	const char *nv = getenv("loader.trust.halt.nv");
+	const char *kh = getenv("loader.trust.tpm.key.handle");
+	unsigned long index, key;
+	char *end;
+
+	if (nv == NULL || kh == NULL)
+		return (false);
+	index = strtoul(nv, &end, 0);
+	if (end == nv || *end != '\0' || index > 0xffffffffUL)
+		return (false);
+	key = strtoul(kh, &end, 0);
+	if (end == kh || *end != '\0' || key > 0xffffffffUL)
+		return (false);
+	return (tpm_nv_policy_increment((uint32_t)key, (uint32_t)index));
+}
+
 void
 diagnose_halt(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 {

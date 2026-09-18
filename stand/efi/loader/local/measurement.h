@@ -252,6 +252,7 @@ struct measurement	measure_gpt(int argc, CHAR16 *argv[]);
 struct measurement	measure_record(int argc, CHAR16 *argv[]);
 struct measurement	measure_tpm_keyfile(int argc, CHAR16 *argv[]);
 struct measurement	measure_halt(int argc, CHAR16 *argv[]);
+bool	halt_count_raise(void);		/* the report's x: NV_Increment on loader.trust.halt.nv */
 struct measurement	measure_counter_step(int argc, CHAR16 *argv[]);
 struct measurement	measure_chain(int argc, CHAR16 *argv[]);
 struct measurement	measure_lastboot_gap(int argc, CHAR16 *argv[]);

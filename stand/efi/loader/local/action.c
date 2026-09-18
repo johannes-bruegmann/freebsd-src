@@ -253,6 +253,7 @@ static void
 action_report(const struct appraisal *a)
 {
 	char failed[LISTLEN], passed[LISTLEN];
+	int c;
 
 	list_by_verdict(a, VERDICT_FAIL, failed, sizeof(failed));
 	list_by_verdict(a, VERDICT_PASS, passed, sizeof(passed));
@@ -266,8 +267,20 @@ action_report(const struct appraisal *a)
 	 */
 	while (ischar())
 		(void)getchar();
-	printf("Press any key to continue.\n");
-	(void)getchar();
+	/*
+	 * The report is the last word the owner gets before the dialog; x
+	 * lets them act on it: power off, with the halt counter raised first
+	 * so the next boot reports HaltQuiet -- a halt at the report is a
+	 * halt like any other, it must leave its trace (JB 18.09.).
+	 */
+	printf("Press any key to continue, x to power off.\n");
+	c = getchar();
+	if (c == 'x' || c == 'X') {
+		printf("powering off; the halt counter is raised, the next boot says so\n");
+		(void)halt_count_raise();
+		RS->ResetSystem(EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+		halt_boot("poweroff failed");
+	}
 }
 
 static void
