@@ -64,6 +64,13 @@ struct taste_ctx {
  * partitions among them -- so a silent miss can be read after the boot. */
 static char keys_reason[288] = "not tried";
 static char keys_seen[200];
+static bool keys_files_slot;
+
+bool
+geli_keys_files_slot(void)
+{
+	return (keys_files_slot);
+}
 
 const char *
 geli_keys_reason(void)
@@ -291,6 +298,8 @@ keys_derive(const struct g_eli_metadata *md, const char *passphrase,
 	for (g = 0; g < np; g++)
 		keys_note("%c%s:%d", g ? ',' : ':', provs[g], nfiles[g]);
 	keys_note(",%s)", ok ? (files ? "keyfiles" : "key") : "nokey");
+	if (ok)
+		keys_files_slot = files;
 	return (ok);
 }
 

@@ -21,6 +21,8 @@
 #include "record.h"
 #include "tpm.h"
 #include "tpm_keyfile.h"
+#include "geli_keys.h"
+#include "geli_open.h"
 #include "nvme.h"
 
 struct measurement
@@ -238,6 +240,33 @@ diagnose_halt(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 		snprintf(d->text, sizeof(d->text), "%llu", (unsigned long long)halt_count);
 	else
 		snprintf(d->text, sizeof(d->text), "unread (%s)", tpm_last_error());
+}
+
+/*
+ * GeliSlot: 1 iff the disk opened through the slot of key files alone
+ * (slot 0: the medium's file + the TPM's), 0 through a passphrase slot --
+ * the recovery passphrase, slot 1. A recovery boot is legitimate and
+ * rare; it must be loud, not silent (JB 19.09.). Absent until the dialog
+ * opened a provider.
+ */
+struct measurement
+measure_geli_slot(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "GeliSlot", .type = MEAS_BYTE };
+
+	if (!geli_open_done())
+		return (m);
+	m.present = true;
+	m.value.byte = geli_keys_files_slot() ? 1 : 0;
+	return (m);
+}
+
+void
+diagnose_geli_slot(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
+{
+	d->leaf = "geli.slot";
+	snprintf(d->text, sizeof(d->text), "%s",
+	    !geli_open_done() ? "closed" : geli_keys_files_slot() ? "keyfiles" : "passphrase");
 }
 
 struct measurement

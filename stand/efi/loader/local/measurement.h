@@ -251,6 +251,7 @@ struct measurement	measure_gpt(int argc, CHAR16 *argv[]);
  */
 struct measurement	measure_record(int argc, CHAR16 *argv[]);
 struct measurement	measure_tpm_keyfile(int argc, CHAR16 *argv[]);
+struct measurement	measure_geli_slot(int argc, CHAR16 *argv[]);	/* GeliSlot: 1 = key files slot, 0 = passphrase (recovery) slot */
 struct measurement	measure_halt(int argc, CHAR16 *argv[]);
 bool	halt_count_raise(void);		/* the report's x: NV_Increment on loader.trust.halt.nv */
 struct measurement	measure_counter_step(int argc, CHAR16 *argv[]);
@@ -350,6 +351,7 @@ void	diagnose_lastboot_gap(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_tpm(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_nvme(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_tpm_keyfile(int argc, CHAR16 *argv[], struct diagnosis *);
+void	diagnose_geli_slot(int argc, CHAR16 *argv[], struct diagnosis *);	/* geli.slot: keyfiles | passphrase | closed */
 void	diagnose_halt(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_time_boot(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_time_prompt(int argc, CHAR16 *argv[], struct diagnosis *);

@@ -121,6 +121,12 @@ evidence_set_silence(void)
 	E.silence = true;
 }
 
+void
+evidence_set_unlocked(void)
+{
+	E.unlocked = true;
+}
+
 /*
  * The canonical rendering: one line per gate "phase:gate:verdict:failed:
  * skipped", then the counters. Deterministic for a given boot, so two

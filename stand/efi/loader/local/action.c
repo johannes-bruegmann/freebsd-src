@@ -511,8 +511,10 @@ action_unlock(const struct appraisal *a)
 		printf("\n");
 		sha256_hex(got, strlen(got), hash);
 		explicit_bzero(got, sizeof(got));
-		if (strcmp(hash, LOADER_TRUST_UNLOCK_SECRET) == 0)
+		if (strcmp(hash, LOADER_TRUST_UNLOCK_SECRET) == 0) {
+			evidence_set_unlocked();	/* the word tells earlboot (JB 19.09.) */
 			return;
+		}
 		printf("wrong.\n");
 	}
 	halt_boot("locked");
@@ -677,6 +679,8 @@ action_handover(const struct appraisal *a)
 		flags |= RECORD_F_DURESS;	/* the TPM's verdict (tpm_keyfile.c) */
 	if (e->prompted > 0)
 		flags |= RECORD_F_PROMPTED;
+	if (e->unlocked)
+		flags |= RECORD_F_UNLOCKED;
 	evidence_digest(d);
 	hex_of(d, sizeof(d), hex);
 	snprintf(msg, sizeof(msg), "%s|%llu|%u", hex,
