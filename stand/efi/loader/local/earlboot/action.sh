@@ -231,11 +231,24 @@ halt_count_once() {
 	$RM -f "$2"
 }
 
-# halt_count_note <text> -- the outcome into the append-only spool
-halt_count_note() {
+# spool_note <what> <text> -- one dated line into the append-only spool
+spool_note() {
 	$MKDIR -p "$ELV_STATE"
 	[ -f "$ELV_STATE/spool" ] || { : > "$ELV_STATE/spool"; $CHFLAGS sappnd "$ELV_STATE/spool"; }
-	printf '%s halt-count %s\n' "$($DATE -u +%Y-%m-%dT%H:%M:%SZ)" "$1" >> "$ELV_STATE/spool"
+	printf '%s %s %s\n' "$($DATE -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" >> "$ELV_STATE/spool"
+}
+
+# halt_count_note <text> -- the outcome into the append-only spool
+halt_count_note() {
+	spool_note halt-count "$1"
+}
+
+# unlock_note_act <gate> -- the owner overrode a fallen gate with the unlock
+# passphrase: not a custody failure, but the append-only witness that this
+# boot ran on a gate the loader had reported (JB 19.09.: the loader
+# reports, earlboot judges). Bound with when_unlocked.
+unlock_note_act() {
+	spool_note unlock-ack "taint=$ELV_TAINT gates=[$($KENV -q loader.trust.kernellock.failed 2>/dev/null),$($KENV -q loader.trust.recordlock.failed 2>/dev/null)]"
 }
 
 # poweroff_act -- immediate power off, no grace

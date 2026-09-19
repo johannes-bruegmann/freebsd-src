@@ -70,6 +70,7 @@ struct record_body {
 #define	RECORD_F_TAINT		0x01
 #define	RECORD_F_DURESS		0x02
 #define	RECORD_F_PROMPTED	0x04
+#define	RECORD_F_UNLOCKED	0x08	/* unlock_act took the passphrase: the owner overrode a gate */
 
 /* The sealed form as stored: nonce || ciphertext(body) || mac */
 #define	RECORD_NONCE_LEN	16

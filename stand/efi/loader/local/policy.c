@@ -134,6 +134,8 @@ record_flags(void)
 		f |= RECORD_F_DURESS;
 	if (e->prompted > 0)
 		f |= RECORD_F_PROMPTED;
+	if (e->unlocked)
+		f |= RECORD_F_UNLOCKED;
 	return (f);
 }
 

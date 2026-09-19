@@ -57,6 +57,20 @@ measure_flag_prompted() {
 	[ "$ELV_WORD_OK" = 1 ] || return 0
 	printf '%s\n' "$ELV_PROMPTED"
 }
+# measure_flag_unlocked <gate> -- the unlocked bit: the owner took a gate's
+# unlock passphrase this boot (0/1), only meaningful when the word verified
+measure_flag_unlocked() {
+	[ "$ELV_WORD_OK" = 1 ] || return 0
+	printf '%s\n' "$ELV_UNLOCKED"
+}
+# measure_flag_taint_open <gate> -- 1 iff the boot is tainted AND nobody
+# unlocked it: a boot on a fallen gate without the owner's override. Taint
+# with an unlock is not a custody failure but a note (unlock_note_act):
+# the loader reports, earlboot judges (JB 19.09.). Absent without a word.
+measure_flag_taint_open() {
+	[ "$ELV_WORD_OK" = 1 ] || return 0
+	if [ "$ELV_TAINT" = 1 ] && [ "$ELV_UNLOCKED" != 1 ]; then printf '1\n'; else printf '0\n'; fi
+}
 
 # measure_securelevel -- kern.securelevel as the kernel reports it
 measure_securelevel() {
@@ -262,7 +276,7 @@ measure_answer_matched() {
 # diagnose_kenv -- the loader.trust.* publications as one line
 diagnose_kenv() { $KENV 2>/dev/null | $GREP "^loader\.trust\." | $TR '\n' ' '; }
 # diagnose_word -- ok/taint/duress/prompted as the word check learned them
-diagnose_word() { printf 'ok=%s taint=%s duress=%s prompted=%s\n' "$ELV_WORD_OK" "$ELV_TAINT" "$ELV_DURESS" "$ELV_PROMPTED"; }
+diagnose_word() { printf 'ok=%s taint=%s duress=%s prompted=%s unlocked=%s\n' "$ELV_WORD_OK" "$ELV_TAINT" "$ELV_DURESS" "$ELV_PROMPTED" "$ELV_UNLOCKED"; }
 # diagnose_book -- the book's last line (counter and stamp)
 diagnose_book() { [ -f "$ELV_STATE/book" ] && $TAIL -1 "$ELV_STATE/book"; }
 # diagnose_smart <nvmeN> -- power cycles, power-on hours, unsafe shutdowns

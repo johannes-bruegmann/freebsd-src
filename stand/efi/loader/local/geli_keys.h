@@ -21,5 +21,9 @@
 unsigned int	 geli_keys_prepare(const char *passphrase, bool keyfiles_only);
 /* Why the last attempt ended as it did (diagnose_record, the dialog). */
 const char	*geli_keys_reason(void);
+/* true iff the last derivation opened through the slot of key files alone
+ * (slot 0, the medium's file + the TPM's); false: a passphrase slot, i.e. the
+ * recovery passphrase (slot 1) -- the loud special case (JB 19.09.) */
+bool		 geli_keys_files_slot(void);
 
 #endif /* _LOCAL_GELI_KEYS_H_ */
