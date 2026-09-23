@@ -285,7 +285,15 @@ struct measurement	measure_nvme(int argc, CHAR16 *argv[]);
  * measure_unsafe_step   1 iff the NVMe's unsafe-shutdown count did not move
  *                       since the record
  * measure_efivars_foreign number of non-volatile variables outside the
- *                       learned set (a tell: BootPrev, HwErrRec, a new entry)
+ *                       learned set and never seen by any boot (a tell:
+ *                       BootPrev, HwErrRec, a new entry)
+ * measure_firmware_boot_step 1 iff the firmware's own boot counter (a slice
+ *                       of a vendor variable, loader.trust.firmware.counter.var)
+ *                       advanced by exactly one since the record
+ * measure_firmware_moved 1 iff the moving part of that variable
+ *                       (loader.trust.firmware.moving.var) equals none of the
+ *                       values kept from the last boots: a dump written back
+ *                       blindly brings an old value
  */
 struct measurement	measure_storage_gap(int argc, CHAR16 *argv[]);
 struct measurement	measure_clock_order(int argc, CHAR16 *argv[]);
@@ -294,6 +302,8 @@ struct measurement	measure_anchor_valid(int argc, CHAR16 *argv[]);
 struct measurement	measure_medium_switch(int argc, CHAR16 *argv[]);
 struct measurement	measure_unsafe_step(int argc, CHAR16 *argv[]);
 struct measurement	measure_efivars_foreign(int argc, CHAR16 *argv[]);
+struct measurement	measure_firmware_boot_step(int argc, CHAR16 *argv[]);
+struct measurement	measure_firmware_moved(int argc, CHAR16 *argv[]);
 
 /*
  * --- time (measure_time.c; clock.h keeps the stamps) ---
@@ -379,6 +389,8 @@ struct measurement	measure_ledger_prompted(int argc, CHAR16 *argv[]);
  * diagnose_medium_switch       medium: now=<letter>,last=<letter>
  * diagnose_unsafe_step         unsafe: current/recorded unsafe shutdowns
  * diagnose_efivars_foreign     efivars.foreign: count and the identities
+ * diagnose_firmware_boot_step  firmware.counter: current/recorded
+ * diagnose_firmware_moved      firmware.moving: now=<hex>,kept=<hex>,...
  */
 void	diagnose_origin(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_prerequisites_exist(int argc, CHAR16 *argv[], struct diagnosis *);
@@ -408,5 +420,7 @@ void	diagnose_anchor_valid(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_medium_switch(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_unsafe_step(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_efivars_foreign(int argc, CHAR16 *argv[], struct diagnosis *);
+void	diagnose_firmware_boot_step(int argc, CHAR16 *argv[], struct diagnosis *);
+void	diagnose_firmware_moved(int argc, CHAR16 *argv[], struct diagnosis *);
 
 #endif /* _LOCAL_MEASUREMENT_H_ */

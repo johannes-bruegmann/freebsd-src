@@ -55,6 +55,10 @@ static EFI_GUID pciio_guid = EFI_PCI_IO_PROTOCOL_GUID;
 #ifndef LOADER_TRUST_EFIVARS_SET
 #define	LOADER_TRUST_EFIVARS_SET	""
 #endif
+/* every variable any inventory record ever listed: not in the set on purpose, not foreign either */
+#ifndef LOADER_TRUST_EFIVARS_KNOWN
+#define	LOADER_TRUST_EFIVARS_KNOWN	""
+#endif
 
 #define	ITEM_IDLEN	56
 
@@ -574,11 +578,13 @@ set_has(const char *set, const char *id)
 }
 
 /*
- * EfiVarsForeign: the non-volatile variables the firmware
- * shows that are NOT members of the learned set -- BootPrev after a boot
- * through the boot manager, HwErrRec0000 after a hardware event, a boot
- * entry someone added. The set digest cannot see them (it runs over the
- * members only); this claim counts them. 0 iff none. A tell, not a prompt (gate tellwatch).
+ * EfiVarsForeign: the non-volatile variables the firmware shows that are
+ * neither members of the learned set nor known from any earlier boot
+ * (LOADER_TRUST_EFIVARS_KNOWN: what the owner saw and left out on purpose,
+ * a health counter that moves every boot) -- BootPrev after a boot through
+ * the boot manager, HwErrRec0000 after a hardware event, a boot entry
+ * someone added. The set digest cannot see them (it runs over the members
+ * only); this claim counts them. 0 iff none. A tell, not a prompt (gate tellwatch).
  */
 static unsigned int foreign_count;
 static char foreign_names[200];
@@ -599,7 +605,8 @@ measure_efivars_foreign(int argc __unused, CHAR16 *argv[] __unused)
 	foreign_count = 0;
 	foreign_names[0] = '\0';
 	for (i = 0; i < efi_n; i++) {
-		if (set_has(LOADER_TRUST_EFIVARS_SET, efi_items[i].id))
+		if (set_has(LOADER_TRUST_EFIVARS_SET, efi_items[i].id) ||
+		    set_has(LOADER_TRUST_EFIVARS_KNOWN, efi_items[i].id))
 			continue;
 		foreign_count++;
 		if (used + strlen(efi_items[i].id) + 2 < sizeof(foreign_names)) {

@@ -104,6 +104,34 @@ diagnose_media_serial() { $CAMCONTROL inquiry "$1" 2>/dev/null | $HEAD -1; }
 # diagnose_rtc_gap -- heartbeat and now as epochs
 diagnose_rtc_gap() { [ -f "$ELV_STATE/heartbeat" ] && printf 'heartbeat=%s now=%s\n' "$($STAT -f %m "$ELV_STATE/heartbeat")" "$($DATE +%s)"; }
 
+# measure_efivar_unique <guid8/name> -- 1 iff the digest this boot's loader
+# published for the variable (kenv loader.trust.list.efivars.*, the
+# <id>:<attrs>:<size>:<digest> entries) appears in NO earlier inventory
+# record ($ELV_STATE/inventory/*, one file per boot). A variable that
+# moves every boot must never repeat: a repeat is a dump written back
+# blindly. Absent without the entry or without earlier records.
+measure_efivar_unique() {
+	local cur f
+	cur=$($KENV | $SED -n 's/^loader\.trust\.list\.efivars\.[0-9]*="\(.*\)"$/\1/p' | $TR ',' '\n' | $GREP "^$1:" | $HEAD -n1 | $AWK -F: '{print $NF}')
+	[ -n "$cur" ] || return 0
+	[ -d "$ELV_STATE/inventory" ] || return 0
+	f=$(ls "$ELV_STATE/inventory" 2>/dev/null | $SORT | $SED '$d')
+	[ -n "$f" ] || return 0
+	for f in $f; do
+		if $TR ',' '\n' < "$ELV_STATE/inventory/$f" | $GREP -q "^\(loader\.trust\.list\.efivars\.[0-9]*=\"\)\{0,1\}$1:.*:$cur\$"; then
+			printf '0\n'; return 0
+		fi
+	done
+	printf '1\n'
+}
+# diagnose_efivar_unique <guid8/name> -- this boot's digest and the number of earlier records
+diagnose_efivar_unique() {
+	local cur n
+	cur=$($KENV | $SED -n 's/^loader\.trust\.list\.efivars\.[0-9]*="\(.*\)"$/\1/p' | $TR ',' '\n' | $GREP "^$1:" | $HEAD -n1 | $AWK -F: '{print $NF}')
+	n=$(ls "$ELV_STATE/inventory" 2>/dev/null | $WC -l | $TR -d ' ')
+	printf 'digest=%s,records=%s\n' "${cur:-none}" "$((n > 0 ? n - 1 : 0))"
+}
+
 # measure_ntp_gap <max-seconds> -- 1 iff the RTC the boot ran on agrees
 # with the network time within <max-seconds>: earlboot left the RTC epoch
 # and the monotonic uptime (clock-at-boot); now, with ntpd synchronised

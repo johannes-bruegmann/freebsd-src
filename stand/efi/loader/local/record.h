@@ -49,7 +49,8 @@
 #include <crypto/sha2/sha256.h>
 
 #define	RECORD_MAGIC	0x454c5652u	/* "ELVR" */
-#define	RECORD_VERSION	2u	/* NVMe hours/units, the medium letter */
+#define	RECORD_FW_HISTORY	4	/* boots the moving part is kept for */
+#define	RECORD_VERSION	3u	/* NVMe hours/units, the medium letter, the firmware counter and its moving part */
 
 struct record_body {
 	uint32_t	magic;
@@ -65,6 +66,8 @@ struct record_body {
 	uint64_t	nvme_hours;	/* NVMe power-on hours at commit */
 	uint64_t	nvme_units_read;	/* NVMe data units read at commit */
 	uint64_t	nvme_units_written;	/* NVMe data units written at commit */
+	uint64_t	fw_counter;	/* the firmware's own boot counter (loader.trust.firmware.counter.var) */
+	uint64_t	fw_moving[RECORD_FW_HISTORY];	/* the moving part of that variable, newest first */
 	uint8_t		chain[SHA256_DIGEST_LENGTH];	/* this boot's link */
 	uint8_t		flags;		/* RECORD_F_* of that boot */
 	uint8_t		medium;		/* the medium's letter ('a', 'b'; 0 unknown) */
@@ -124,6 +127,13 @@ const struct anchor_state	*record_anchor_state(void);
 const struct anchor_state	*record_shutdown_state(void);
 /* the letter stamped on the medium (\EFI\elvboot\medium), 0 unknown */
 uint8_t				 record_medium_letter(void);
+/*
+ * A firmware variable's slice as a number: <guid>-<name>:<offset>:<length>
+ * (length 1..8, little endian), e.g. the Insyde MotherBoardHealth boot
+ * counter ea1fcaee-3a77-4bb8-9b98-518e75d29a99-MotherBoardHealth:8:4.
+ * false without the variable or a malformed spec.
+ */
+bool				 record_efivar_slice(const char *spec, uint64_t *out);
 /* how often the boot answer had to be typed again (0 or 1) */
 unsigned int			 record_answer_retries(void);
 /* the digest every cap extends into the cap PCR (shared with elvbootd) */

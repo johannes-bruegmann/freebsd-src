@@ -16,6 +16,7 @@
 
 #include <stand.h>
 #include <stddef.h>
+#include <uuid.h>
 #include <string.h>
 
 #include <efi.h>
@@ -547,6 +548,50 @@ anchor_commit(const struct record_body *b)
 	explicit_bzero(&a, sizeof(a));
 }
 
+/* --------------------------------------- a firmware variable's slice */
+
+bool
+record_efivar_slice(const char *spec, uint64_t *out)
+{
+	char guidtext[37], name[64];
+	uuid_t uuid;
+	uint32_t status;
+	const char *p, *q;
+	unsigned long off, len;
+	char *end;
+	uint8_t buf[512];
+	size_t sz = sizeof(buf), i;
+	uint64_t v = 0;
+
+	if (spec == NULL || strlen(spec) < 38 || spec[36] != '-')
+		return (false);
+	memcpy(guidtext, spec, 36);
+	guidtext[36] = '\0';
+	uuid_from_string(guidtext, &uuid, &status);
+	if (status != uuid_s_ok)
+		return (false);
+	p = spec + 37;
+	q = strchr(p, ':');
+	if (q == NULL || q == p || (size_t)(q - p) >= sizeof(name))
+		return (false);
+	memcpy(name, p, q - p);
+	name[q - p] = '\0';
+	off = strtoul(q + 1, &end, 10);
+	if (end == q + 1 || *end != ':')
+		return (false);
+	len = strtoul(end + 1, &end, 10);
+	if (*end != '\0' || len < 1 || len > 8)
+		return (false);
+	if (EFI_ERROR(efi_getenv((EFI_GUID *)&uuid, name, buf, &sz)))
+		return (false);
+	if (off + len > sz)
+		return (false);
+	for (i = 0; i < len; i++)
+		v |= (uint64_t)buf[off + i] << (8 * i);
+	*out = v;
+	return (true);
+}
+
 /* -------------------------------------------------- the medium letter */
 
 static uint8_t medium_letter;
@@ -741,6 +786,19 @@ record_commit(uint8_t flags)
 		b.nvme_units_written = ns.data_units_written;
 	}
 	b.medium = record_medium_letter();
+	{
+		uint64_t v;
+		int i;
+
+		if (record_efivar_slice(getenv("loader.trust.firmware.counter.var"), &v))
+			b.fw_counter = v;
+		/* the moving part: this boot's value first, the previous boots' behind it */
+		if (S.valid)
+			for (i = 1; i < RECORD_FW_HISTORY; i++)
+				b.fw_moving[i] = S.prev.fw_moving[i - 1];
+		if (record_efivar_slice(getenv("loader.trust.firmware.moving.var"), &v))
+			b.fw_moving[0] = v;
+	}
 	b.flags = flags;
 	memcpy(msg, S.valid ? S.prev.chain : (const uint8_t[SHA256_DIGEST_LENGTH]){ 0 },
 	    SHA256_DIGEST_LENGTH);

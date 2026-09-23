@@ -593,6 +593,98 @@ diagnose_unsafe_step(int argc __unused, CHAR16 *argv[] __unused,
 		(void)strlcpy(d->text, "unknown", sizeof(d->text));
 }
 
+/*
+ * The firmware's own boot counter (loader.trust.firmware.counter.var, a
+ * slice of a vendor variable) must have advanced by exactly one since the
+ * record -- the same step the TPM reset count and the NVMe cycles take.
+ * A replayed NVRAM sets it back or leaves it, a foreign boot that reached
+ * the firmware's boot manager adds one. Absent without the leaf, the
+ * variable or a valid record.
+ */
+struct measurement
+measure_firmware_boot_step(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "FirmwareBootStep", .type = MEAS_BYTE };
+	const struct record_state *rs = record_state();
+	uint64_t cur;
+
+	if (!rs->valid || rs->prev.fw_counter == 0 ||
+	    !record_efivar_slice(getenv("loader.trust.firmware.counter.var"), &cur))
+		return (m);
+	m.present = true;
+	m.value.byte = cur == rs->prev.fw_counter + 1 ? 1 : 0;
+	return (m);
+}
+
+void
+diagnose_firmware_boot_step(int argc __unused, CHAR16 *argv[] __unused,
+    struct diagnosis *d)
+{
+	const struct record_state *rs = record_state();
+	uint64_t cur;
+
+	d->leaf = "firmware.counter";
+	if (record_efivar_slice(getenv("loader.trust.firmware.counter.var"), &cur))
+		snprintf(d->text, sizeof(d->text), "%llu/%llu", (unsigned long long)cur,
+		    (unsigned long long)(rs->valid ? rs->prev.fw_counter : 0));
+	else
+		(void)strlcpy(d->text, "unread", sizeof(d->text));
+}
+
+/*
+ * The moving part of the same variable (loader.trust.firmware.moving.var)
+ * changes with every boot the firmware performs; the record keeps the
+ * values of the last RECORD_FW_HISTORY boots. 1 iff this boot's value is
+ * none of them. A dump of the variables written back blindly brings an
+ * old value with it -- the witness the owner's exclusion of the variable
+ * from the set made visible. Absent without the leaf, the variable, a
+ * valid record or any kept value.
+ */
+struct measurement
+measure_firmware_moved(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "FirmwareMoved", .type = MEAS_BYTE };
+	const struct record_state *rs = record_state();
+	uint64_t cur;
+	int i;
+	bool any = false, same = false;
+
+	if (!rs->valid ||
+	    !record_efivar_slice(getenv("loader.trust.firmware.moving.var"), &cur))
+		return (m);
+	for (i = 0; i < RECORD_FW_HISTORY; i++) {
+		if (rs->prev.fw_moving[i] == 0)
+			continue;
+		any = true;
+		if (rs->prev.fw_moving[i] == cur)
+			same = true;
+	}
+	if (!any)
+		return (m);
+	m.present = true;
+	m.value.byte = same ? 0 : 1;
+	return (m);
+}
+
+void
+diagnose_firmware_moved(int argc __unused, CHAR16 *argv[] __unused,
+    struct diagnosis *d)
+{
+	const struct record_state *rs = record_state();
+	uint64_t cur;
+	int i, n;
+
+	d->leaf = "firmware.moving";
+	if (!record_efivar_slice(getenv("loader.trust.firmware.moving.var"), &cur)) {
+		(void)strlcpy(d->text, "unread", sizeof(d->text));
+		return;
+	}
+	n = snprintf(d->text, sizeof(d->text), "now=%llx,kept=", (unsigned long long)cur);
+	for (i = 0; i < RECORD_FW_HISTORY && n < (int)sizeof(d->text); i++)
+		n += snprintf(d->text + n, sizeof(d->text) - n, "%s%llx", i ? "," : "",
+		    (unsigned long long)(rs->valid ? rs->prev.fw_moving[i] : 0));
+}
+
 /* --- diagnostics --- */
 
 void
