@@ -19,6 +19,7 @@
 #include "measurement.h"
 #include "clock.h"
 #include "evidence.h"
+#include "record.h"		/* record_answer_retries */
 
 #ifdef LOADER_TRUST_TIME_BOOT_MAX_MS
 struct measurement
@@ -92,13 +93,23 @@ measure_time_rtc_tsc(int argc __unused, CHAR16 *argv[] __unused)
 	return (m);
 }
 
+/*
+ * Attempts (B1, JB 23.09.): the hidden lines typed that the boot did NOT
+ * ask for -- all attempts minus the two the boot always takes (the
+ * passphrase, the boot answer), minus one per interactive gate action
+ * (an unlock counts as the boot's, not the owner's fault), minus the one
+ * retry of the boot answer that record_load may ask for. 0 iff nothing
+ * was typed twice: expectation 0.
+ */
 struct measurement
 measure_attempts(int argc __unused, CHAR16 *argv[] __unused)
 {
 	struct measurement m = { .name = "Attempts", .type = MEAS_BYTE,
 	    .present = true };
-	unsigned int n = evidence()->attempts;
+	const struct evidence *e = evidence();
+	unsigned int n = e->attempts, owed = 2 + e->prompted + record_answer_retries();
 
+	n = n > owed ? n - owed : 0;
 	m.value.byte = n > 255 ? 255 : n;
 	return (m);
 }
@@ -121,9 +132,9 @@ diagnose_time_prompt(int argc __unused, CHAR16 *argv[] __unused,
 	const struct evidence *e = evidence();
 
 	d->leaf = "time.prompt";
-	snprintf(d->text, sizeof(d->text), "dwell=%llu,cadence=%llu,attempts=%u",
+	snprintf(d->text, sizeof(d->text), "dwell=%llu,cadence=%llu,attempts=%u,prompted=%u,retry=%u",
 	    (unsigned long long)e->prompt_ms, (unsigned long long)e->cadence_ms,
-	    e->attempts);
+	    e->attempts, e->prompted, record_answer_retries());
 }
 
 void

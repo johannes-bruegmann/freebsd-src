@@ -457,6 +457,8 @@ static EFI_GUID elv_guid = { 0xe1b00747, 0x5e1f, 0x4c0d,
 
 #define	EFIVARS_MAX	400
 static struct item efi_items[EFIVARS_MAX];
+static unsigned int efi_n;		/* items enumerated by measure_efivars */
+static bool efi_done, efi_overflow;
 
 struct measurement
 measure_efivars(int argc __unused, CHAR16 *argv[] __unused)
@@ -540,6 +542,9 @@ measure_efivars(int argc __unused, CHAR16 *argv[] __unused)
 	}
 	free(name);
 	list_flush(&l);
+	efi_n = n;
+	efi_done = true;
+	efi_overflow = overflow;
 	if (overflow)
 		return (m);		/* an incomplete inventory claims nothing */
 	if (!set_digest("efivars", LOADER_TRUST_EFIVARS_SET, efi_items, n,
@@ -547,6 +552,76 @@ measure_efivars(int argc __unused, CHAR16 *argv[] __unused)
 		return (m);
 	m.present = true;
 	return (m);
+}
+
+/* Is the identity a member of the compiled set? */
+static bool
+set_has(const char *set, const char *id)
+{
+	const char *p = set;
+	size_t k, idlen = strlen(id);
+
+	while (*p != '\0') {
+		for (k = 0; p[k] != '\0' && p[k] != ','; k++)
+			;
+		if (k == idlen && memcmp(p, id, k) == 0)
+			return (true);
+		p += k;
+		while (*p == ',')
+			p++;
+	}
+	return (false);
+}
+
+/*
+ * EfiVarsForeign (B1, B0 finding): the non-volatile variables the firmware
+ * shows that are NOT members of the learned set -- BootPrev after a boot
+ * through the boot manager, HwErrRec0000 after a hardware event, a boot
+ * entry someone added. The set digest cannot see them (it runs over the
+ * members only); this claim counts them. 0 iff none. A tell, not a prompt.
+ */
+static unsigned int foreign_count;
+static char foreign_names[200];
+
+struct measurement
+measure_efivars_foreign(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "EfiVarsForeign", .type = MEAS_BYTE };
+	unsigned int i;
+	size_t used = 0;
+
+	if (LOADER_TRUST_EFIVARS_SET[0] == '\0')
+		return (m);
+	if (!efi_done)
+		(void)measure_efivars(0, NULL);
+	if (efi_overflow)
+		return (m);
+	foreign_count = 0;
+	foreign_names[0] = '\0';
+	for (i = 0; i < efi_n; i++) {
+		if (set_has(LOADER_TRUST_EFIVARS_SET, efi_items[i].id))
+			continue;
+		foreign_count++;
+		if (used + strlen(efi_items[i].id) + 2 < sizeof(foreign_names)) {
+			if (used > 0)
+				foreign_names[used++] = ' ';
+			(void)strlcpy(foreign_names + used, efi_items[i].id,
+			    sizeof(foreign_names) - used);
+			used += strlen(efi_items[i].id);
+		}
+	}
+	m.present = true;
+	m.value.byte = foreign_count > 255 ? 255 : foreign_count;
+	return (m);
+}
+
+void
+diagnose_efivars_foreign(int argc __unused, CHAR16 *argv[] __unused,
+    struct diagnosis *d)
+{
+	d->leaf = "efivars.foreign";
+	snprintf(d->text, sizeof(d->text), "count=%u%s%s", foreign_count,
+	    foreign_names[0] != '\0' ? " " : "", foreign_names);
 }
 
 /* --- PCI devices --- */

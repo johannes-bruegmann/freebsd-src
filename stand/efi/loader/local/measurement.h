@@ -263,6 +263,39 @@ struct measurement	measure_pcr(int argc, CHAR16 *argv[]);
 struct measurement	measure_nvme(int argc, CHAR16 *argv[]);
 
 /*
+ * --- B1 Zeitanker (measure_record.c, measure_platform.c) ---
+ * Assumption: wall time is the RTC, which anyone with the setup can set;
+ * TPM clock and NVMe counters only grow under power. Nothing here can
+ * guarantee that a long storage is noticed -- what it guarantees is that
+ * a forged RTC has to agree with two clocks the attacker cannot turn back.
+ * measure_storage_gap   1 iff the UNPOWERED time since the last boot (RTC
+ *                       advance minus TPM clock advance) is at most
+ *                       loader.trust.storage.gap.max.days
+ * measure_clock_order   1 iff the RTC advanced at least as far as the TPM
+ *                       clock and as the NVMe power-on hours (skew:
+ *                       loader.trust.clock.skew.s)
+ * measure_smart_step    1 iff hours and data units moved by a boot's worth
+ *                       only since elvbootd's shutdown index (units max:
+ *                       loader.trust.smart.step.units.max)
+ * measure_anchor_valid  1 iff the machine-local anchor (TPM NV under the
+ *                       cap PCR's boot state) verifies and equals the
+ *                       previous record's pair
+ * measure_medium_switch 1 iff the medium's letter equals the one the anchor
+ *                       recorded (a switch is a tell: the owner rotates)
+ * measure_unsafe_step   1 iff the NVMe's unsafe-shutdown count did not move
+ *                       since the record
+ * measure_efivars_foreign number of non-volatile variables outside the
+ *                       learned set (a tell: BootPrev, HwErrRec, a new entry)
+ */
+struct measurement	measure_storage_gap(int argc, CHAR16 *argv[]);
+struct measurement	measure_clock_order(int argc, CHAR16 *argv[]);
+struct measurement	measure_smart_step(int argc, CHAR16 *argv[]);
+struct measurement	measure_anchor_valid(int argc, CHAR16 *argv[]);
+struct measurement	measure_medium_switch(int argc, CHAR16 *argv[]);
+struct measurement	measure_unsafe_step(int argc, CHAR16 *argv[]);
+struct measurement	measure_efivars_foreign(int argc, CHAR16 *argv[]);
+
+/*
  * --- time (measure_time.c; clock.h keeps the stamps) ---
  * measure_time_boot     1 iff the time from efi_main entry to now is at
  *                       most LOADER_TRUST_TIME_BOOT_MAX_MS (KERNEL phase:
@@ -274,8 +307,10 @@ struct measurement	measure_nvme(int argc, CHAR16 *argv[]);
  * measure_time_rtc_tsc  1 iff the RTC delta and the cycle-counter delta
  *                       since entry agree within LOADER_TRUST_TIME_SKEW_MS
  *                       -- a set-back RTC does not move the TSC
- * measure_attempts      the number of passphrase entries at the gate
- *                       prompts of this boot (expected 1; 2 is a tell)
+ * measure_attempts      the hidden lines typed that the boot did not ask
+ *                       for: all attempts minus the two the boot takes,
+ *                       minus one per interactive gate action, minus the
+ *                       boot answer's one retry (B1, JB 23.09.; expected 0)
  */
 struct measurement	measure_time_boot(int argc, CHAR16 *argv[]);
 struct measurement	measure_time_prompt(int argc, CHAR16 *argv[]);
@@ -337,6 +372,13 @@ struct measurement	measure_ledger_prompted(int argc, CHAR16 *argv[]);
  * diagnose_preload             preload: total and unverified preloaded files
  * diagnose_ledger              ledger: gates, failed, prompted counts and
  *                              the per-gate entries
+ * diagnose_storage_gap         storage.gap: gap.s, rtc.diff.s, tpm.diff.s
+ * diagnose_clock_order         clock.order: the three advances in seconds
+ * diagnose_smart_step          smart.step: hours and units since shutdown
+ * diagnose_anchor_valid        anchor: verified/unverified, matches/differs
+ * diagnose_medium_switch       medium: now=<letter>,last=<letter>
+ * diagnose_unsafe_step         unsafe: current/recorded unsafe shutdowns
+ * diagnose_efivars_foreign     efivars.foreign: count and the identities
  */
 void	diagnose_origin(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_prerequisites_exist(int argc, CHAR16 *argv[], struct diagnosis *);
@@ -359,5 +401,12 @@ void	diagnose_time_rtc_tsc(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_howto(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_preload(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_ledger(int argc, CHAR16 *argv[], struct diagnosis *);
+void	diagnose_storage_gap(int argc, CHAR16 *argv[], struct diagnosis *);
+void	diagnose_clock_order(int argc, CHAR16 *argv[], struct diagnosis *);
+void	diagnose_smart_step(int argc, CHAR16 *argv[], struct diagnosis *);
+void	diagnose_anchor_valid(int argc, CHAR16 *argv[], struct diagnosis *);
+void	diagnose_medium_switch(int argc, CHAR16 *argv[], struct diagnosis *);
+void	diagnose_unsafe_step(int argc, CHAR16 *argv[], struct diagnosis *);
+void	diagnose_efivars_foreign(int argc, CHAR16 *argv[], struct diagnosis *);
 
 #endif /* _LOCAL_MEASUREMENT_H_ */

@@ -117,6 +117,8 @@ smart_of(EFI_NVM_EXPRESS_PASS_THRU_PROTOCOL *pt, struct nvme_smart *out)
 			out->power_cycles = le128_lo(aligned->power_cycles);
 			out->power_on_hours = le128_lo(aligned->power_on_hours);
 			out->unsafe_shutdowns = le128_lo(aligned->unsafe_shutdowns);
+			out->data_units_read =
+			    le128_lo(aligned->data_units_read);
 			out->data_units_written =
 			    le128_lo(aligned->data_units_written);
 		}

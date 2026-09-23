@@ -69,6 +69,11 @@ bool	tpm_unseal(uint32_t keyhandle, const uint8_t *key_digest, uint32_t handle,
  * (PolicyCommandCode), read with the index's own empty auth. */
 bool	tpm_nv_policy_increment(uint32_t keyhandle, uint32_t index);
 bool	tpm_nv_index_read(uint32_t index, uint64_t *out);
+/* B1 (Zeitanker): whole-index write under PolicyPCR, generic read, the cap */
+bool	tpm_nv_policy_write(uint32_t keyhandle, uint32_t index, uint32_t pcr_mask,
+	    const uint8_t *data, uint16_t len);
+bool	tpm_nv_read_bytes(uint32_t index, uint8_t *out, uint16_t len);
+bool	tpm_pcr_extend(uint32_t pcr, const uint8_t digest[static SHA256_DIGEST_LENGTH]);
 const char *tpm_last_error(void);
 
 #endif /* _LOCAL_TPM_H_ */

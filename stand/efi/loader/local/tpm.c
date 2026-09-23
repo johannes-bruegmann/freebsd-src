@@ -83,6 +83,8 @@ struct _EFI_TCG2_PROTOCOL {
 #define	TPM_CC_NV_DefineSpace	0x0000012au
 #define	TPM_CC_NV_Increment	0x00000134u
 #define	TPM_CC_NV_Read		0x0000014eu
+#define	TPM_CC_NV_Write		0x00000137u
+#define	TPM_CC_PCR_Extend	0x00000182u
 #define	TPM_CC_NV_ReadPublic	0x00000169u
 #define	TPM_CC_PCR_Read		0x0000017eu
 #define	TPM_CC_ReadClock	0x00000181u
@@ -985,21 +987,15 @@ tpm_unseal(uint32_t keyhandle, const uint8_t *key_digest, uint32_t handle,
  * under a salted session, the index authorizing itself (empty authValue).
  * Its name comes from NV_ReadPublic.
  */
-bool
-tpm_nv_policy_increment(uint32_t keyhandle, uint32_t index)
+/* NV_ReadPublic: the index's name (2 + 32 bytes) for the cpHash. */
+static bool
+nv_name(uint32_t index, uint8_t nvname[static 2 + SHA256_DIGEST_LENGTH])
 {
-	uint8_t c[256], r[256], names[2 * (2 + SHA256_DIGEST_LENGTH)], nvname[2 + SHA256_DIGEST_LENGTH];
+	uint8_t c[64], r[256];
 	struct bb b = { c, 10, sizeof(c) };
-	struct tpm_key k;
-	struct session s;
-	size_t n, poff, plen;
+	size_t n;
 	uint16_t sz, nsz;
-	bool ok;
 
-	if (!read_public(keyhandle, &k) || k.nlen == 0) {
-		last_error = "storage key is not RSA";
-		return (false);
-	}
 	/* NV_ReadPublic: nvPublic (2B), nvName (2B) */
 	put32(&b, index);
 	finish(&b, TPM_ST_NO_SESSIONS, TPM_CC_NV_ReadPublic);
@@ -1009,11 +1005,30 @@ tpm_nv_policy_increment(uint32_t keyhandle, uint32_t index)
 	if (12 + sz + 2 > n)
 		return (false);
 	nsz = get16(r + 12 + sz);
-	if (nsz != sizeof(nvname) || 14 + sz + nsz > n) {
+	if (nsz != 2 + SHA256_DIGEST_LENGTH || 14 + sz + nsz > n) {
 		last_error = "bad NV name";
 		return (false);
 	}
 	memcpy(nvname, r + 14 + sz, nsz);
+	return (true);
+}
+
+bool
+tpm_nv_policy_increment(uint32_t keyhandle, uint32_t index)
+{
+	uint8_t c[256], r[256], names[2 * (2 + SHA256_DIGEST_LENGTH)], nvname[2 + SHA256_DIGEST_LENGTH];
+	struct bb b = { c, 10, sizeof(c) };
+	struct tpm_key k;
+	struct session s;
+	size_t n, poff, plen;
+	bool ok;
+
+	if (!read_public(keyhandle, &k) || k.nlen == 0) {
+		last_error = "storage key is not RSA";
+		return (false);
+	}
+	if (!nv_name(index, nvname))
+		return (false);
 	if (!session_start(&k, keyhandle, &s))
 		return (false);
 	memcpy(names, nvname, sizeof(nvname));			/* authHandle: the index */
@@ -1054,4 +1069,112 @@ tpm_nv_index_read(uint32_t index, uint64_t *out)
 		return (false);
 	*out = get64(r + 16);
 	return (true);
+}
+
+/*
+ * NV_Write of a whole index under a salted session whose policy is
+ * PolicyPCR over the selection (the anchor indices, A-Strich: the loader
+ * writes while the cap PCR still holds its boot value). The index
+ * authorizes itself (empty authValue); the data go as one TPM2B at offset 0.
+ */
+bool
+tpm_nv_policy_write(uint32_t keyhandle, uint32_t index, uint32_t pcr_mask,
+    const uint8_t *data, uint16_t len)
+{
+	uint8_t c[512], r[256], names[2 * (2 + SHA256_DIGEST_LENGTH)], nvname[2 + SHA256_DIGEST_LENGTH];
+	uint8_t params[4 + 256];
+	struct bb b = { c, 10, sizeof(c) };
+	struct tpm_key k;
+	struct session s;
+	size_t n, poff, plen, i;
+	bool ok;
+
+	if (len == 0 || len > 256) {
+		last_error = "NV write size";
+		return (false);
+	}
+	if (!read_public(keyhandle, &k) || k.nlen == 0) {
+		last_error = "storage key is not RSA";
+		return (false);
+	}
+	if (!nv_name(index, nvname))
+		return (false);
+	if (!session_start(&k, keyhandle, &s))
+		return (false);
+	memcpy(names, nvname, sizeof(nvname));			/* authHandle: the index */
+	memcpy(names + sizeof(nvname), nvname, sizeof(nvname));	/* nvIndex */
+	/* parameters as hashed into cpHash: TPM2B data, UINT16 offset */
+	params[0] = len >> 8; params[1] = len & 0xff;
+	memcpy(params + 2, data, len);
+	params[2 + len] = 0; params[3 + len] = 0;
+	b.n = 10;
+	put32(&b, index);				/* authHandle */
+	put32(&b, index);				/* nvIndex */
+	ok = policy_pcr(s.handle, pcr_mask) &&
+	    put_auth_session(&b, &s, 0, TPM_CC_NV_Write, names, sizeof(names),
+	    params, 4 + len);
+	if (ok) {
+		put16(&b, len);
+		for (i = 0; i < len; i++)
+			put8(&b, data[i]);
+		put16(&b, 0);				/* offset */
+		finish(&b, TPM_ST_SESSIONS, TPM_CC_NV_Write);
+		ok = submit(&b, r, sizeof(r), &n) &&
+		    check_response(&s, TPM_CC_NV_Write, r, n, &poff, &plen);
+	}
+	session_end(&s);
+	return (ok);
+}
+
+/* NV_Read of len bytes from an index that reads with its own empty auth. */
+bool
+tpm_nv_read_bytes(uint32_t index, uint8_t *out, uint16_t len)
+{
+	uint8_t c[64], r[64 + 256];
+	struct bb b = { c, 10, sizeof(c) };
+	size_t n;
+	uint32_t psize;
+
+	if (len == 0 || len > 256)
+		return (false);
+	put32(&b, index);			/* authHandle: the index itself */
+	put32(&b, index);			/* nvIndex */
+	put_auth_pw(&b);
+	put16(&b, len);				/* size */
+	put16(&b, 0);				/* offset */
+	finish(&b, TPM_ST_SESSIONS, TPM_CC_NV_Read);
+	if (!submit(&b, r, sizeof(r), &n) || n < 10 + 4 + 2 + (size_t)len)
+		return (false);
+	psize = get32(r + 10);
+	if (psize < 2 + (uint32_t)len || get16(r + 14) != len)
+		return (false);
+	memcpy(out, r + 16, len);
+	return (true);
+}
+
+/*
+ * PCR_Extend with one sha256 digest, the PCR authorizing itself (empty
+ * password): the cap that ends this boot's write permission on the anchor
+ * index -- and, extended once more by elvbootd at shutdown, the one that
+ * opens the shutdown index for the runtime only.
+ */
+bool
+tpm_pcr_extend(uint32_t pcr, const uint8_t digest[static SHA256_DIGEST_LENGTH])
+{
+	uint8_t c[128], r[64];
+	struct bb b = { c, 10, sizeof(c) };
+	size_t n, i;
+
+	if (pcr > 23) {
+		last_error = "PCR index";
+		return (false);
+	}
+	put32(&b, pcr);				/* pcrHandle */
+	put_auth_pw(&b);
+	put32(&b, 1);				/* TPML_DIGEST_VALUES: count */
+	put16(&b, TPM_ALG_SHA256);
+	for (i = 0; i < SHA256_DIGEST_LENGTH; i++)
+		put8(&b, digest[i]);
+	finish(&b, TPM_ST_SESSIONS, TPM_CC_PCR_Extend);
+	return (submit(&b, r, sizeof(r), &n));
 }

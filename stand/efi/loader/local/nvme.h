@@ -30,6 +30,7 @@ struct nvme_smart {
 	uint64_t	power_cycles;
 	uint64_t	power_on_hours;
 	uint64_t	unsafe_shutdowns;
+	uint64_t	data_units_read;
 	uint64_t	data_units_written;
 	unsigned int	controllers;	/* how many answered */
 };

@@ -52,6 +52,8 @@ static EFI_GUID elv_guid = { 0xe1b00747, 0x5e1f, 0x4c0d,
 static struct record_state S;
 static bool loaded;
 
+static EFI_FILE_HANDLE medium_open(const char *name, bool write);
+
 /* ------------------------------------------------------------ crypto */
 
 static void
@@ -144,6 +146,8 @@ static uint8_t ikm[SHA256_DIGEST_LENGTH + ANSWER_MAX];
 static size_t ikm_len;		/* 0: not (yet) available */
 static bool asked;		/* the boot answer prompt ran */
 
+static bool record_var_exists(void);
+
 static bool
 answer_wanted(void)
 {
@@ -187,31 +191,41 @@ ikm_gather(void)
 	reason = "keying material ready";
 	ikm_len = SHA256_DIGEST_LENGTH;
 	if (answer_wanted() && !asked) {
-		char again[ANSWER_MAX];
-		int tries;
-
 		asked = true;
 		/*
-		 * Typed twice, taken when both agree (JB 12.09.): the answer
-		 * is never verified against anything, a slip would break the
-		 * chain silently. Three mismatches: no answer, no material.
+		 * Typed ONCE (JB 23.09.): the previous record is the proof --
+		 * it verifies only under the answer it was written with, so
+		 * record_load() checks the answer against it and asks again
+		 * once if it does not (answer_retry). Only a chain without a
+		 * record (its first boot) has nothing to check against: then
+		 * twice, taken when both agree (JB 12.09.), because a slip
+		 * would break the new chain silently.
 		 */
-		for (tries = 0; tries < 3; tries++) {
+		if (record_var_exists()) {
 			printf("\nBoot answer: ");
 			readsecret(answer, sizeof(answer));
-			printf("\nBoot answer, again: ");
-			readsecret_confirm(again, sizeof(again));
 			printf("\n");
-			if (strcmp(answer, again) == 0)
-				break;
-			printf("the two answers differ\n");
-		}
-		explicit_bzero(again, sizeof(again));
-		if (tries == 3) {
-			explicit_bzero(answer, sizeof(answer));
-			ikm_len = 0;
-			reason = "boot answer not confirmed (three mismatches)";
-			return (false);
+		} else {
+			char again[ANSWER_MAX];
+			int tries;
+
+			for (tries = 0; tries < 3; tries++) {
+				printf("\nBoot answer: ");
+				readsecret(answer, sizeof(answer));
+				printf("\nBoot answer, again: ");
+				readsecret_confirm(again, sizeof(again));
+				printf("\n");
+				if (strcmp(answer, again) == 0)
+					break;
+				printf("the two answers differ\n");
+			}
+			explicit_bzero(again, sizeof(again));
+			if (tries == 3) {
+				explicit_bzero(answer, sizeof(answer));
+				ikm_len = 0;
+				reason = "boot answer not confirmed (three mismatches)";
+				return (false);
+			}
 		}
 		n = strlen(answer);
 		memcpy(ikm + ikm_len, answer, n);
@@ -219,6 +233,33 @@ ikm_gather(void)
 		explicit_bzero(answer, sizeof(answer));
 	}
 	return (true);
+}
+
+/* The one retry of the boot answer: new material from GELI's digest + the new answer. */
+static unsigned int answer_retries;
+
+static void
+answer_retry(void)
+{
+	char answer[ANSWER_MAX];
+	size_t n;
+
+	answer_retries++;
+	printf("the previous record does not verify under this answer\n");
+	printf("\nBoot answer, once more: ");
+	readsecret(answer, sizeof(answer));
+	printf("\n");
+	ikm_len = SHA256_DIGEST_LENGTH;		/* keep GELI's digest, drop the answer */
+	n = strlen(answer);
+	memcpy(ikm + ikm_len, answer, n);
+	ikm_len += n;
+	explicit_bzero(answer, sizeof(answer));
+}
+
+unsigned int
+record_answer_retries(void)
+{
+	return (answer_retries);
 }
 
 bool
@@ -390,6 +431,148 @@ record_var_get(const char *name, void *buf, size_t *len)
 	return (!EFI_ERROR(efi_getenv(&elv_guid, name, buf, len)));
 }
 
+static bool
+record_var_exists(void)
+{
+	uint8_t probe[RECORD_SEALED_LEN];
+	size_t len = sizeof(probe);
+
+	return (record_var_get(RECORD_VAR, probe, &len));
+}
+
+/* --------------------------------------------------- the anchors (B1) */
+
+/* sha256("elvboot cap"): what every cap extends; elvbootd extends the same. */
+const uint8_t record_cap_digest[SHA256_DIGEST_LENGTH] = {
+	0xe7, 0x7d, 0x35, 0xbc, 0x1f, 0x1b, 0x86, 0xc4, 0x26, 0x7b, 0xfb, 0xa0,
+	0xd4, 0xb8, 0x74, 0xaf, 0xad, 0x6e, 0xbc, 0x96, 0x4b, 0x83, 0x67, 0xb0,
+	0x5b, 0x81, 0x7e, 0xe5, 0x57, 0xa7, 0x0e, 0x8f
+};
+
+static bool
+leaf_u32(const char *name, uint32_t *out)
+{
+	const char *v = getenv(name);
+	unsigned long x;
+	char *end;
+
+	if (v == NULL)
+		return (false);
+	x = strtoul(v, &end, 0);
+	if (end == v || *end != '\0' || x > 0xffffffffUL)
+		return (false);
+	*out = (uint32_t)x;
+	return (true);
+}
+
+static struct anchor_state A, D;
+static bool a_loaded, d_loaded;
+
+/* The anchor index, verified with the record material; matches iff == prev. */
+const struct anchor_state *
+record_anchor_state(void)
+{
+	uint32_t index;
+	uint8_t tag[SHA256_DIGEST_LENGTH];
+	const struct record_state *rs;
+
+	if (a_loaded)
+		return (&A);
+	if (!record_secret_present())
+		return (&A);		/* before GELI unlocked: tried again later */
+	a_loaded = true;
+	memset(&A, 0, sizeof(A));
+	if (!leaf_u32("loader.trust.tpm.anchor.nv", &index))
+		return (&A);
+	if (!tpm_nv_read_bytes(index, (uint8_t *)&A.body, sizeof(A.body)))
+		return (&A);
+	A.present = true;
+	record_hmac("anchor", &A.body, offsetof(struct record_anchor, tag), tag);
+	if (memcmp(tag, A.body.tag, sizeof(tag)) != 0)
+		return (&A);
+	A.valid = true;
+	rs = record_load();
+	A.matches = rs->valid && A.body.a == rs->prev.boot_epoch &&
+	    A.body.b == rs->prev.tpm_clock && A.body.c == rs->prev.counter;
+	return (&A);
+}
+
+/* The shutdown index, elvbootd's; its tag is a plain sha256 (no secret at runtime). */
+const struct anchor_state *
+record_shutdown_state(void)
+{
+	uint32_t index;
+	uint8_t tag[SHA256_DIGEST_LENGTH];
+	SHA256_CTX ctx;
+
+	if (d_loaded)
+		return (&D);
+	d_loaded = true;
+	memset(&D, 0, sizeof(D));
+	if (!leaf_u32("loader.trust.tpm.shutdown.nv", &index))
+		return (&D);
+	if (!tpm_nv_read_bytes(index, (uint8_t *)&D.body, sizeof(D.body)))
+		return (&D);
+	D.present = true;
+	SHA256_Init(&ctx);
+	SHA256_Update(&ctx, &D.body, offsetof(struct record_anchor, tag));
+	SHA256_Final(tag, &ctx);
+	D.valid = memcmp(tag, D.body.tag, sizeof(tag)) == 0;
+	return (&D);
+}
+
+/*
+ * Write this boot's anchor under the cap PCR's boot-state policy, then
+ * cap: one extend, and the write permission is gone for this boot.
+ * Without the leafs nothing is written and nothing capped (the claim
+ * AnchorValid then skips, stage require names the leafs).
+ */
+static void
+anchor_commit(const struct record_body *b)
+{
+	struct record_anchor a;
+	uint32_t index, key, pcr;
+
+	if (!leaf_u32("loader.trust.tpm.anchor.nv", &index) ||
+	    !leaf_u32("loader.trust.tpm.key.handle", &key) ||
+	    !leaf_u32("loader.trust.tpm.cap.pcr", &pcr) || pcr > 23)
+		return;
+	memset(&a, 0, sizeof(a));
+	a.a = b->boot_epoch;
+	a.b = b->tpm_clock;
+	a.c = b->counter;
+	a.medium = b->medium;
+	record_hmac("anchor", &a, offsetof(struct record_anchor, tag), a.tag);
+	(void)tpm_nv_policy_write(key, index, 1u << pcr, (const uint8_t *)&a, sizeof(a));
+	(void)tpm_pcr_extend(pcr, record_cap_digest);
+	explicit_bzero(&a, sizeof(a));
+}
+
+/* -------------------------------------------------- the medium letter */
+
+static uint8_t medium_letter;
+static bool medium_read;
+
+uint8_t
+record_medium_letter(void)
+{
+	EFI_FILE_HANDLE f;
+	UINTN sz = 1;
+	uint8_t c = 0;
+
+	if (medium_read)
+		return (medium_letter);
+	medium_read = true;
+	f = medium_open("medium", false);
+	if (f == NULL)
+		return (0);
+	if (!EFI_ERROR(f->Read(f, &sz, &c)) && sz == 1 &&
+	    ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
+		medium_letter = c;
+	f->Close(f);
+	return (medium_letter);
+}
+
 /* ------------------------------------------------------ medium access */
 
 static EFI_GUID imgid = LOADED_IMAGE_PROTOCOL;
@@ -494,6 +677,11 @@ record_load(void)
 	if (!record_var_get(RECORD_VAR, sealed, &len))
 		return (&S);
 	S.present = true;
+	if (len == sizeof(sealed) && !unseal(sealed, &S.prev) &&
+	    answer_wanted() && answer_retries == 0) {
+		answer_retry();
+		/* the same sealed bytes under the new material */
+	}
 	if (len != sizeof(sealed) || !unseal(sealed, &S.prev))
 		return (&S);
 	S.valid = true;
@@ -547,7 +735,11 @@ record_commit(uint8_t flags)
 	if (nvme_smart(&ns)) {
 		b.nvme_cycles = ns.power_cycles;
 		b.nvme_unsafe = ns.unsafe_shutdowns;
+		b.nvme_hours = ns.power_on_hours;
+		b.nvme_units_read = ns.data_units_read;
+		b.nvme_units_written = ns.data_units_written;
 	}
+	b.medium = record_medium_letter();
 	b.flags = flags;
 	memcpy(msg, S.valid ? S.prev.chain : (const uint8_t[SHA256_DIGEST_LENGTH]){ 0 },
 	    SHA256_DIGEST_LENGTH);
@@ -556,6 +748,7 @@ record_commit(uint8_t flags)
 	seal(&b, sealed);
 	ok = record_var_set(RECORD_VAR, sealed, sizeof(sealed));
 	(void)record_medium_append("chain", b.chain, sizeof(b.chain));
+	anchor_commit(&b);			/* needs the material: before the wipe */
 	ikm_wipe();
 	explicit_bzero(&b, sizeof(b));
 	return (ok);
