@@ -231,6 +231,40 @@ halt_count_once() {
 	$RM -f "$2"
 }
 
+# warn_shutdown_act <gate> -- the owner's login warning after an unclean
+# shutdown (JB 23.09.): one plain line per finding into pending-console,
+# which elvbootd's notice_act puts into /var/run/motd -- "unsafe power
+# loss, NVMe counter +N since the last boot" when UnsafeStep fell, "last
+# shutdown was not clean (no marker)" when BootMarker fell; both when
+# both. Reads the loader's kenv, assumes the loader gate tellwatch carries UnsafeStep.
+warn_shutdown_act() {
+	local v now rec f
+	$MKDIR -p "$ELV_STATE"
+	v=$($KENV -q loader.trust.tellwatch.unsafe 2>/dev/null)
+	case "$v" in
+	*/*)	now=${v%%/*}; rec=${v##*/}
+		[ "$now" != "$rec" ] && printf 'WARNUNG: unsauberer Stromverlust -- NVMe-Zaehler unsafe shutdowns %s (Record %s), +%s seit dem letzten Boot\n' "$now" "$rec" "$((now - rec))" >> "$ELV_STATE/pending-console"
+		;;
+	esac
+	f=$($KENV -q loader.trust.bootlock.failed 2>/dev/null)
+	case ",$f," in
+	*,BootMarker,*) printf 'WARNUNG: letzter Shutdown nicht ordentlich (kein Marker im NVRAM)\n' >> "$ELV_STATE/pending-console" ;;
+	esac
+}
+
+# clock_note_act <gate> -- the RTC as earlboot sees it (no ntpd yet) beside
+# the monotonic uptime, for elvbootd's measure_ntp_gap after the tunnel:
+# $ELV_STATE/clock-at-boot = "<epoch> <uptime-seconds>". Assumes: the
+# kernel took its clock from the RTC (no network before earlboot).
+clock_note_act() {
+	local now bt
+	$MKDIR -p "$ELV_STATE"
+	now=$($DATE +%s)
+	bt=$($SYSCTL -n kern.boottime 2>/dev/null | $SED -n 's/.*sec = \([0-9]*\).*/\1/p')
+	[ -n "$bt" ] || return 0
+	printf '%s %s\n' "$now" "$((now - bt))" > "$ELV_STATE/clock-at-boot"
+}
+
 # spool_note <what> <text> -- one dated line into the append-only spool
 spool_note() {
 	$MKDIR -p "$ELV_STATE"

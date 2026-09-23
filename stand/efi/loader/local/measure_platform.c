@@ -578,7 +578,7 @@ set_has(const char *set, const char *id)
  * shows that are NOT members of the learned set -- BootPrev after a boot
  * through the boot manager, HwErrRec0000 after a hardware event, a boot
  * entry someone added. The set digest cannot see them (it runs over the
- * members only); this claim counts them. 0 iff none. A tell, not a prompt.
+ * members only); this claim counts them. 0 iff none. A tell, not a prompt (gate tellwatch).
  */
 static unsigned int foreign_count;
 static char foreign_names[200];

@@ -103,3 +103,39 @@ measure_freeze() {
 diagnose_media_serial() { $CAMCONTROL inquiry "$1" 2>/dev/null | $HEAD -1; }
 # diagnose_rtc_gap -- heartbeat and now as epochs
 diagnose_rtc_gap() { [ -f "$ELV_STATE/heartbeat" ] && printf 'heartbeat=%s now=%s\n' "$($STAT -f %m "$ELV_STATE/heartbeat")" "$($DATE +%s)"; }
+
+# measure_ntp_gap <max-seconds> -- 1 iff the RTC the boot ran on agrees
+# with the network time within <max-seconds>: earlboot left the RTC epoch
+# and the monotonic uptime (clock-at-boot); now, with ntpd synchronised
+# (ntpq: stratum below 16), the expected RTC is that epoch plus the
+# uptime since -- the difference to the real now is what ntpd corrected,
+# i.e. how far the RTC was off at boot. A silent boot on a set-back RTC
+# shows here, after the login, where the attacker cannot prevent it
+# (Konzepte/zeitanker-lagerung.md A.3). Absent without the note or
+# without synchronisation. Assumes ntpd and the tunnel are up (STARTUP
+# late, PERIODIC daily).
+measure_ntp_gap() {
+	local rtc up now bt upnow expect gap st
+	[ -f "$ELV_STATE/clock-at-boot" ] || return 0
+	read -r rtc up < "$ELV_STATE/clock-at-boot" || return 0
+	st=$($NTPQ -c 'rv 0 stratum' 2>/dev/null | $SED -n 's/.*stratum=\([0-9]*\).*/\1/p')
+	[ -n "$st" ] && [ "$st" -lt 16 ] || return 0
+	now=$($DATE +%s)
+	bt=$($SYSCTL -n kern.boottime 2>/dev/null | $SED -n 's/.*sec = \([0-9]*\).*/\1/p')
+	[ -n "$bt" ] || return 0
+	upnow=$((now - bt))
+	expect=$((rtc + upnow - up))
+	gap=$((now - expect))
+	[ "$gap" -lt 0 ] && gap=$((-gap))
+	if [ "$gap" -le "$1" ]; then printf '1\n'; else printf '0\n'; fi
+}
+# diagnose_ntp_gap -- the gap in seconds (signed: now minus expected RTC), or unknown
+diagnose_ntp_gap() {
+	local rtc up now bt
+	[ -f "$ELV_STATE/clock-at-boot" ] || { printf 'unknown\n'; return 0; }
+	read -r rtc up < "$ELV_STATE/clock-at-boot" || { printf 'unknown\n'; return 0; }
+	now=$($DATE +%s)
+	bt=$($SYSCTL -n kern.boottime 2>/dev/null | $SED -n 's/.*sec = \([0-9]*\).*/\1/p')
+	[ -n "$bt" ] || { printf 'unknown\n'; return 0; }
+	printf 'gap.s=%s\n' "$((now - (rtc + (now - bt) - up)))"
+}

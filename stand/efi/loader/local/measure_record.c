@@ -527,7 +527,7 @@ diagnose_anchor_valid(int argc __unused, CHAR16 *argv[] __unused,
 /*
  * The medium switch: the letter stamped on this medium against the letter
  * the anchor recorded as last booted. 1 iff equal. The owner rotates the
- * cards himself: a switch is a tell, never a prompt (gate tells).
+ * cards himself: a switch is a tell, never a prompt (gate tellwatch).
  */
 struct measurement
 measure_medium_switch(int argc __unused, CHAR16 *argv[] __unused)

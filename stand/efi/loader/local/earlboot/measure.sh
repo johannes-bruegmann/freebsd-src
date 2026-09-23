@@ -281,3 +281,31 @@ diagnose_word() { printf 'ok=%s taint=%s duress=%s prompted=%s unlocked=%s\n' "$
 diagnose_book() { [ -f "$ELV_STATE/book" ] && $TAIL -1 "$ELV_STATE/book"; }
 # diagnose_smart <nvmeN> -- power cycles, power-on hours, unsafe shutdowns
 diagnose_smart() { $NVMECONTROL logpage -p 2 "$1" 2>/dev/null | $GREP -E '^Power cycles:|^Power on hours:|^Unsafe shutdowns:' | $TR -s ' \t' ' ' | $TR '\n' ';'; }
+
+# --- B1 Zeitanker: the runtime side of the loader's tells ---
+
+# measure_unsafe_grew <gate> -- 1 iff the NVMe's unsafe-shutdown count did
+# NOT grow since the record, as the loader published it under
+# loader.trust.<gate>.unsafe ("current/recorded", the tell UnsafeStep);
+# absent when the loader published nothing. Assumes: the tells gate carries
+# the claim (gate tellwatch, workflow time-anchor).
+measure_unsafe_grew() {
+	local v now rec
+	v=$($KENV -q "loader.trust.$1.unsafe" 2>/dev/null) || return 0
+	case "$v" in */*) ;; *) return 0 ;; esac
+	now=${v%%/*}; rec=${v##*/}
+	if [ "$now" = "$rec" ]; then printf '1\n'; else printf '0\n'; fi
+}
+# diagnose_unsafe_grew <gate> -- current/recorded as published
+diagnose_unsafe_grew() { $KENV -q "loader.trust.$1.unsafe" 2>/dev/null; }
+
+# measure_marker_kept <gate> -- 1 iff BootMarker did not fall in <gate>
+# (bootlock): the marker elvbootd set at the last clean shutdown was in
+# place. 0 = the last shutdown was not a clean one (or the NVRAM lost it:
+# B0, the battery pull). Absent when the gate published no verdict.
+measure_marker_kept() {
+	local f
+	f=$($KENV -q "loader.trust.$1.failed" 2>/dev/null) || return 0
+	case ",$f," in *,BootMarker,*) printf '0\n' ;; *) printf '1\n' ;; esac
+}
+diagnose_marker_kept() { $KENV -q "loader.trust.$1.failed" 2>/dev/null; }

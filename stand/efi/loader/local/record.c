@@ -146,7 +146,7 @@ static uint8_t ikm[SHA256_DIGEST_LENGTH + ANSWER_MAX];
 static size_t ikm_len;		/* 0: not (yet) available */
 static bool asked;		/* the boot answer prompt ran */
 
-static bool record_var_exists(void);
+static void ikm_wipe(void);
 
 static bool
 answer_wanted(void)
@@ -196,37 +196,15 @@ ikm_gather(void)
 		 * Typed ONCE (JB 23.09.): the previous record is the proof --
 		 * it verifies only under the answer it was written with, so
 		 * record_load() checks the answer against it and asks again
-		 * once if it does not (answer_retry). Only a chain without a
-		 * record (its first boot) has nothing to check against: then
-		 * twice, taken when both agree (JB 12.09.), because a slip
-		 * would break the new chain silently.
+		 * once if it does not (answer_retry). A chain without a usable
+		 * record (its first boot, a new record version) has nothing to
+		 * check against: record_commit() then asks for the confirmation
+		 * before sealing (answer_confirm; JB 12.09.: a slip would break
+		 * the new chain silently).
 		 */
-		if (record_var_exists()) {
-			printf("\nBoot answer: ");
-			readsecret(answer, sizeof(answer));
-			printf("\n");
-		} else {
-			char again[ANSWER_MAX];
-			int tries;
-
-			for (tries = 0; tries < 3; tries++) {
-				printf("\nBoot answer: ");
-				readsecret(answer, sizeof(answer));
-				printf("\nBoot answer, again: ");
-				readsecret_confirm(again, sizeof(again));
-				printf("\n");
-				if (strcmp(answer, again) == 0)
-					break;
-				printf("the two answers differ\n");
-			}
-			explicit_bzero(again, sizeof(again));
-			if (tries == 3) {
-				explicit_bzero(answer, sizeof(answer));
-				ikm_len = 0;
-				reason = "boot answer not confirmed (three mismatches)";
-				return (false);
-			}
-		}
+		printf("\nBoot answer: ");
+		readsecret(answer, sizeof(answer));
+		printf("\n");
 		n = strlen(answer);
 		memcpy(ikm + ikm_len, answer, n);
 		ikm_len += n;
@@ -260,6 +238,36 @@ unsigned int
 record_answer_retries(void)
 {
 	return (answer_retries);
+}
+
+/*
+ * A new chain starts on an answer typed once and proven against nothing:
+ * confirm it before the first record is sealed with it (JB 12.09.: a slip
+ * would break the chain silently). Three mismatches: the material is
+ * wiped, nothing is committed.
+ */
+static bool
+answer_confirm(void)
+{
+	char again[ANSWER_MAX];
+	size_t n = ikm_len - SHA256_DIGEST_LENGTH;
+	int tries;
+	bool ok = false;
+
+	for (tries = 0; tries < 3 && !ok; tries++) {
+		printf("\nBoot answer, again (a new chain starts): ");
+		readsecret_confirm(again, sizeof(again));
+		printf("\n");
+		ok = strlen(again) == n && memcmp(again, ikm + SHA256_DIGEST_LENGTH, n) == 0;
+		if (!ok)
+			printf("the two answers differ\n");
+	}
+	explicit_bzero(again, sizeof(again));
+	if (!ok) {
+		ikm_wipe();
+		reason = "boot answer not confirmed (three mismatches)";
+	}
+	return (ok);
 }
 
 bool
@@ -429,15 +437,6 @@ bool
 record_var_get(const char *name, void *buf, size_t *len)
 {
 	return (!EFI_ERROR(efi_getenv(&elv_guid, name, buf, len)));
-}
-
-static bool
-record_var_exists(void)
-{
-	uint8_t probe[RECORD_SEALED_LEN];
-	size_t len = sizeof(probe);
-
-	return (record_var_get(RECORD_VAR, probe, &len));
 }
 
 /* --------------------------------------------------- the anchors (B1) */
@@ -717,6 +716,8 @@ record_commit(uint8_t flags)
 	if (!record_secret_present())
 		return (false);
 	(void)record_load();
+	if (!S.valid && answer_wanted() && asked && !answer_confirm())
+		return (false);
 	memset(&b, 0, sizeof(b));
 	b.magic = RECORD_MAGIC;
 	b.version = RECORD_VERSION;

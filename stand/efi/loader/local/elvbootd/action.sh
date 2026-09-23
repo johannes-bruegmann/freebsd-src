@@ -88,6 +88,54 @@ summary_act() {
 	$LOGGER -t elvboot -p security.notice "boot summary: gates=[${gates# }] record=[${rec:-none}] tpm.key=${tpm:-none} attempts=${att:-?} custody=${custody:-none}"
 }
 
+# smart_anchor_act <gate> -- SHUTDOWN (B1): what the next boot must find
+# in the shutdown index -- the NVMe's power-on hours, data units read and
+# written, the medium's letter -- written under the cap PCR's CAPPED state
+# (the loader capped it after its own anchor write; only the runtime can
+# write here), then the PCR is extended once more so nothing after this
+# hook can rewrite it. The loader's SmartStep compares at the next boot:
+# a boot's worth of difference passes, a clone of the disks does not.
+# Layout = struct record_anchor (record.h): three u64 little endian, the
+# letter, seven zero bytes, sha256 over those 32 bytes. Reads the leafs
+# from kenv; without them, or without the tools, nothing is written
+# (SmartStep stays absent). Assumes an NVMe controller nvme0 and tpm2-tools.
+smart_anchor_act() {
+	local idx cap hours rd wr medium body tag f s
+	idx=$($KENV -q loader.trust.tpm.shutdown.nv 2>/dev/null) || return 0
+	cap=$($KENV -q loader.trust.tpm.cap.pcr 2>/dev/null) || return 0
+	[ -n "$idx" ] && [ -n "$cap" ] || return 0
+	[ -c /dev/nvme0 ] || return 0
+	hours=$($NVMECONTROL logpage -p 2 nvme0 2>/dev/null | $AWK -F: '/^Power on hours:/ { gsub(/[ \t]/, "", $2); print $2; exit }')
+	rd=$($NVMECONTROL logpage -p 2 nvme0 2>/dev/null | $AWK -F: '/^Data units \(512,000 byte\) read:/ { gsub(/[ \t]/, "", $2); print $2; exit }')
+	wr=$($NVMECONTROL logpage -p 2 nvme0 2>/dev/null | $AWK -F: '/^Data units written:/ { gsub(/[ \t]/, "", $2); print $2; exit }')
+	[ -n "$hours" ] && [ -n "$rd" ] && [ -n "$wr" ] || return 0
+	medium=$($KENV -q loader.trust.tellwatch.medium 2>/dev/null | $SED -n 's/.*now=\(.\).*/\1/p')
+	[ "$medium" = - ] && medium=""
+	$MKDIR -p "$ELV_STATE"
+	f="$ELV_STATE/shutdown-anchor.bin"; s="$ELV_STATE/shutdown-anchor.session"
+	body=$($AWK -v a="$hours" -v b="$rd" -v c="$wr" -v m="$medium" 'BEGIN {
+		n = a; for (i = 0; i < 8; i++) { printf "\\%03o", n % 256; n = int(n / 256) }
+		n = b; for (i = 0; i < 8; i++) { printf "\\%03o", n % 256; n = int(n / 256) }
+		n = c; for (i = 0; i < 8; i++) { printf "\\%03o", n % 256; n = int(n / 256) }
+		if (m == "") printf "\\000"; else printf "%s", m
+		for (i = 0; i < 7; i++) printf "\\000" }')
+	# shellcheck disable=SC2059
+	printf "$body" > "$f"
+	printf "$body" | $OPENSSL dgst -sha256 -binary >> "$f"
+	TPM2TOOLS_TCTI=device:/dev/tpm0; export TPM2TOOLS_TCTI
+	if $TPM2_STARTAUTHSESSION --policy-session --session="$s" 2>/dev/null &&
+	    $TPM2_POLICYPCR --session="$s" --pcr-list="sha256:$cap" 2>/dev/null &&
+	    $TPM2_NVWRITE "$idx" --auth="session:$s" --input="$f" 2>/dev/null; then
+		$TPM2_FLUSHCONTEXT "$s" 2>/dev/null
+		$TPM2_PCREXTEND "$cap:sha256=e77d35bc1f1b86c4267bfba0d4b874afad6ebc964b8367b05b817ee557a70e8f" 2>/dev/null
+		$LOGGER -t elvboot -p security.notice "shutdown anchor written: hours=$hours read=$rd written=$wr medium=${medium:--}"
+	else
+		$TPM2_FLUSHCONTEXT "$s" 2>/dev/null
+		$LOGGER -t elvboot -p security.notice "shutdown anchor NOT written (index $idx, pcr $cap): the next boot's SmartStep will fall"
+	fi
+	$RM -f "$f" "$s"
+}
+
 # sentinel_act <gate> -- the runtime watchdog: no persisted appraisal of
 # THIS boot means earlboot never ran (or was removed) -- itself a finding.
 # earlboot persists under the name of ITS gate (appraisal-custody), which
