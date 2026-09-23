@@ -6,6 +6,12 @@ enforcement: findings are published to kenv (loader.trust.<gate>.<leaf>)
 or handed to earlboot inside the handover word, never silently acted
 upon.
 
+Base: FreeBSD release/15.1.0-p3 (releng/15.1, 88e7371d9dc). The branch
+ptg-15.1-next is the working line and always sits on the latest 15.1
+patch level; platform-trust-gates-15.1 follows it once a build has booted
+on the reference machine. The whole layer is the patch series
+release/15.1.0-p3..HEAD (git format-patch), applicable to that tag.
+
 Three phases (policy.h): BOOT before the boot medium is engaged, LOADER
 before the interactive loader, KERNEL after the interactive window and
 before ExitBootServices. What one phase saw is evidence for the next
