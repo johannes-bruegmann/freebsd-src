@@ -77,7 +77,7 @@ notice_act() {
 # nothing of duress (the word carries that, the counter is the trace).
 summary_act() {
 	local gates="" failed="" g f rec tpm att custody
-	for g in bootlock loaderlock inventory strictwatch kernellock recordlock kernelpost; do
+	for g in bootlock loaderlock inventory strictwatch kernellock recordlock tellwatch kernelpost; do
 		f=$($KENV -q "loader.trust.$g.failed" 2>/dev/null) || continue
 		if [ -z "$f" ]; then gates="$gates $g:pass"; else gates="$gates $g:fail($f)"; failed="$failed $g"; fi
 	done
