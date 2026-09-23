@@ -196,7 +196,7 @@ shutdown_act() {
 # expectation is learned, so the boot after a halt fails it until the
 # owner relearns). The index authorizes by PolicyCommandCode(NV_Increment),
 # so anyone may raise it, nobody may write a value. Without the leaf, or
-# without the tools, nothing happens (JB 18.09.: a probe must leave a mark).
+# without the tools, nothing happens (a probe must leave a mark).
 halt_count_act() {
 	local nv s i err
 	nv=$($KENV -q loader.trust.halt.nv 2>/dev/null) || return 0
@@ -232,7 +232,7 @@ halt_count_once() {
 }
 
 # warn_shutdown_act <gate> -- the owner's login warning after an unclean
-# shutdown (JB 23.09.): one plain line per finding into pending-console,
+# shutdown: one plain line per finding into pending-console,
 # which elvbootd's notice_act puts into /var/run/motd -- "unsafe power
 # loss, NVMe counter +N since the last boot" when UnsafeStep fell, "last
 # shutdown was not clean (no marker)" when BootMarker fell; both when
@@ -279,7 +279,7 @@ halt_count_note() {
 
 # unlock_note_act <gate> -- the owner overrode a fallen gate with the unlock
 # passphrase: not a custody failure, but the append-only witness that this
-# boot ran on a gate the loader had reported (JB 19.09.: the loader
+# boot ran on a gate the loader had reported (the loader
 # reports, earlboot judges). Bound with when_unlocked.
 unlock_note_act() {
 	spool_note unlock-ack "taint=$ELV_TAINT gates=[$($KENV -q loader.trust.kernellock.failed 2>/dev/null),$($KENV -q loader.trust.recordlock.failed 2>/dev/null)]"

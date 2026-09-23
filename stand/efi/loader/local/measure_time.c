@@ -94,7 +94,7 @@ measure_time_rtc_tsc(int argc __unused, CHAR16 *argv[] __unused)
 }
 
 /*
- * Attempts (B1, JB 23.09.): the hidden lines typed that the boot did NOT
+ * Attempts: the hidden lines typed that the boot did NOT
  * ask for -- all attempts minus the two the boot always takes (the
  * passphrase, the boot answer), minus one per interactive gate action
  * (an unlock counts as the boot's, not the owner's fault), minus the one

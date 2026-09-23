@@ -17,7 +17,7 @@ heartbeat_act() {
 	$TOUCH "$ELV_STATE/heartbeat"
 }
 
-# verified_act <gate> -- the positive booking of a tested medium (JB 26.08.):
+# verified_act <gate> -- the positive booking of a tested medium:
 # replace the untested note of the medium with a verified file naming the
 # exact stand (loader sha256 + manifest sha256). Assumes the ESP is mounted
 # read-only for the read and the medium is THE anchor (a MEDIA claim passed).
@@ -88,7 +88,7 @@ summary_act() {
 	$LOGGER -t elvboot -p security.notice "boot summary: gates=[${gates# }] record=[${rec:-none}] tpm.key=${tpm:-none} attempts=${att:-?} custody=${custody:-none}"
 }
 
-# smart_anchor_act <gate> -- SHUTDOWN (B1): what the next boot must find
+# smart_anchor_act <gate> -- SHUTDOWN: what the next boot must find
 # in the shutdown index -- the NVMe's power-on hours, data units read and
 # written, the medium's letter -- written under the cap PCR's CAPPED state
 # (the loader capped it after its own anchor write; only the runtime can
@@ -178,7 +178,7 @@ fascist_log_act() {
 # loader.trust.list.*: one entry per ACPI table and per non-volatile EFI
 # variable, each with its own digest) into $ELV_STATE/inventory/<boot time>,
 # so boots can be compared and the entries the firmware rewrites can be
-# named before a claim's scope is decided (JB 11.09.: record first, decide
+# named before a claim's scope is decided (record first, decide
 # after). Assumes a loader of this fork published the lists.
 inventory_record_act() {
 	local t
@@ -196,7 +196,7 @@ inventory_record_act() {
 # SHUTDOWN behind a failed marker claim: the firmware shortens the entry
 # after a boot from another medium, the loader's BootMarker claim would
 # fall at the next boot -- the heal keeps the boot silent and the finding
-# visible; a tamper is still measured at boot, before any heal (JB 10.09.).
+# visible; a tamper is still measured at boot, before any heal.
 # Assumes efivar(8) can write the variable (root, /dev/efi).
 marker_heal_act() {
 	local g v m t new size fplen desclen off

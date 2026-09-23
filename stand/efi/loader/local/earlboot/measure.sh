@@ -30,7 +30,7 @@ measure_word() {
 # failed list, 0 with a name in it, absent when the gate published nothing.
 # The tells (Attempts, PromptWindow of kernelpost) are notes for the owner,
 # not verdicts on the boot: a claim over this, bound to spool and mark,
-# keeps them where the owner reads them (JB 18.09.).
+# keeps them where the owner reads them.
 measure_gate_clean() {
 	local f
 	f=$($KENV -q "loader.trust.$1.failed" 2>/dev/null) || return 0
@@ -66,7 +66,7 @@ measure_flag_unlocked() {
 # measure_flag_taint_open <gate> -- 1 iff the boot is tainted AND nobody
 # unlocked it: a boot on a fallen gate without the owner's override. Taint
 # with an unlock is not a custody failure but a note (unlock_note_act):
-# the loader reports, earlboot judges (JB 19.09.). Absent without a word.
+# the loader reports, earlboot judges . Absent without a word.
 measure_flag_taint_open() {
 	[ "$ELV_WORD_OK" = 1 ] || return 0
 	if [ "$ELV_TAINT" = 1 ] && [ "$ELV_UNLOCKED" != 1 ]; then printf '1\n'; else printf '0\n'; fi
@@ -282,7 +282,7 @@ diagnose_book() { [ -f "$ELV_STATE/book" ] && $TAIL -1 "$ELV_STATE/book"; }
 # diagnose_smart <nvmeN> -- power cycles, power-on hours, unsafe shutdowns
 diagnose_smart() { $NVMECONTROL logpage -p 2 "$1" 2>/dev/null | $GREP -E '^Power cycles:|^Power on hours:|^Unsafe shutdowns:' | $TR -s ' \t' ' ' | $TR '\n' ';'; }
 
-# --- B1 Zeitanker: the runtime side of the loader's tells ---
+# --- the time anchors: the runtime side of the loader's tells ---
 
 # measure_unsafe_grew <gate> -- 1 iff the NVMe's unsafe-shutdown count did
 # NOT grow since the record, as the loader published it under
@@ -301,8 +301,8 @@ diagnose_unsafe_grew() { $KENV -q "loader.trust.$1.unsafe" 2>/dev/null; }
 
 # measure_marker_kept <gate> -- 1 iff BootMarker did not fall in <gate>
 # (bootlock): the marker elvbootd set at the last clean shutdown was in
-# place. 0 = the last shutdown was not a clean one (or the NVRAM lost it:
-# B0, the battery pull). Absent when the gate published no verdict.
+# place. 0 = the last shutdown was not a clean one (or the NVRAM lost it, as
+# after a CMOS battery pull). Absent when the gate published no verdict.
 measure_marker_kept() {
 	local f
 	f=$($KENV -q "loader.trust.$1.failed" 2>/dev/null) || return 0

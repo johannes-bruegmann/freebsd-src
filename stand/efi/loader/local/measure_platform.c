@@ -30,7 +30,7 @@ static EFI_GUID pciio_guid = EFI_PCI_IO_PROTOCOL_GUID;
 /*
  * --- sets, and the lists behind them ---
  *
- * AcpiTables and EfiVariables claim a SET the stage names (JB 12.09.: add
+ * AcpiTables and EfiVariables claim a SET the stage names (add
  * semantics, never an exclusion): LOADER_TRUST_ACPI_SET and
  * LOADER_TRUST_EFIVARS_SET, comma-separated identities -- an ACPI table as
  * <signature>/<OEM table id> (thirty SSDTs tell apart only so), an EFI
@@ -176,7 +176,7 @@ measure_image(int argc __unused, CHAR16 *argv[] __unused)
 /* --- every loaded image, in handle order --- */
 
 /*
- * LoadedImages claims a SET too (JB 13.09.): three boots, three digests,
+ * LoadedImages claims a SET too: three boots, three digests,
  * two of them with the same signed loader -- the firmware does not load
  * its images reproducibly, so what is claimed is what the owner took in.
  * An image is identified by the last node of its file path: a firmware
@@ -574,7 +574,7 @@ set_has(const char *set, const char *id)
 }
 
 /*
- * EfiVarsForeign (B1, B0 finding): the non-volatile variables the firmware
+ * EfiVarsForeign: the non-volatile variables the firmware
  * shows that are NOT members of the learned set -- BootPrev after a boot
  * through the boot manager, HwErrRec0000 after a hardware event, a boot
  * entry someone added. The set digest cannot see them (it runs over the

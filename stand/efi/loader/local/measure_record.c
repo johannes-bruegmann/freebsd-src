@@ -8,11 +8,11 @@
  * measure_record.c -- the boot record and its anchors as measurements
  * (measurement.h): record validity, counter step across TPM and NVMe, the
  * chain link on the medium, the gap since the last boot, the hour of day,
- * TPM presence and PCR bank, NVMe presence. B1 (Zeitanker): the unpowered
+ * TPM presence and PCR bank, NVMe presence. The time anchors: the unpowered
  * gap, the order of the clocks, the SMART step across the shutdown, the
  * machine-local anchor, the medium switch, the unsafe-shutdown step.
  *
- * Assumption of the threat model (Konzepte/zeitanker-lagerung.md): wall
+ * Assumption of the threat model: wall
  * time is the RTC, which anyone with the setup can set; the TPM clock and
  * the NVMe counters only ever grow. Nothing here can GUARANTEE that a
  * long storage is noticed -- what it guarantees is that a forged RTC has
@@ -182,7 +182,7 @@ measure_pcr(int argc __unused, CHAR16 *argv[] __unused)
  * record: a record can be deleted by root, the index cannot be lowered by
  * anyone, and the stage keeps the reference. So the boot after a halt
  * fails this claim until the owner relearns at the workbench -- whatever
- * an attacker learned from the halt, the next boot says so (JB 18.09.).
+ * an attacker learned from the halt, the next boot says so.
  * Absent without the leaf.
  */
 static uint64_t halt_count;
@@ -255,7 +255,7 @@ diagnose_halt(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
  * GeliSlot: 1 iff the disk opened through the slot of key files alone
  * (slot 0: the medium's file + the TPM's), 0 through a passphrase slot --
  * the recovery passphrase, slot 1. A recovery boot is legitimate and
- * rare; it must be loud, not silent (JB 19.09.). Absent until the dialog
+ * rare; it must be loud, not silent. Absent until the dialog
  * opened a provider.
  */
 struct measurement
@@ -303,7 +303,7 @@ measure_nvme(int argc __unused, CHAR16 *argv[] __unused)
 }
 
 
-/* ============================ B1: the time anchors ============================ */
+/* ============================== the time anchors ============================== */
 
 /* A gate leaf as an unsigned number; false without it (the claim skips). */
 static bool

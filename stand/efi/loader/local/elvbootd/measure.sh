@@ -111,7 +111,7 @@ diagnose_rtc_gap() { [ -f "$ELV_STATE/heartbeat" ] && printf 'heartbeat=%s now=%
 # uptime since -- the difference to the real now is what ntpd corrected,
 # i.e. how far the RTC was off at boot. A silent boot on a set-back RTC
 # shows here, after the login, where the attacker cannot prevent it
-# (Konzepte/zeitanker-lagerung.md A.3). Absent without the note or
+# Absent without the note or
 # without synchronisation. Assumes ntpd and the tunnel are up (STARTUP
 # late, PERIODIC daily).
 measure_ntp_gap() {

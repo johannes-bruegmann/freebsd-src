@@ -193,13 +193,13 @@ ikm_gather(void)
 	if (answer_wanted() && !asked) {
 		asked = true;
 		/*
-		 * Typed ONCE (JB 23.09.): the previous record is the proof --
+		 * Typed ONCE: the previous record is the proof --
 		 * it verifies only under the answer it was written with, so
 		 * record_load() checks the answer against it and asks again
 		 * once if it does not (answer_retry). A chain without a usable
 		 * record (its first boot, a new record version) has nothing to
 		 * check against: record_commit() then asks for the confirmation
-		 * before sealing (answer_confirm; JB 12.09.: a slip would break
+		 * before sealing (answer_confirm: a slip would break
 		 * the new chain silently).
 		 */
 		printf("\nBoot answer: ");
@@ -242,7 +242,7 @@ record_answer_retries(void)
 
 /*
  * A new chain starts on an answer typed once and proven against nothing:
- * confirm it before the first record is sealed with it (JB 12.09.: a slip
+ * confirm it before the first record is sealed with it (a slip
  * would break the chain silently). Three mismatches: the material is
  * wiped, nothing is committed.
  */
@@ -439,7 +439,7 @@ record_var_get(const char *name, void *buf, size_t *len)
 	return (!EFI_ERROR(efi_getenv(&elv_guid, name, buf, len)));
 }
 
-/* --------------------------------------------------- the anchors (B1) */
+/* -------------------------------------------------------- the anchors */
 
 /* sha256("elvboot cap"): what every cap extends; elvbootd extends the same. */
 const uint8_t record_cap_digest[SHA256_DIGEST_LENGTH] = {

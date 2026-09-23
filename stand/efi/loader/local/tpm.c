@@ -17,7 +17,7 @@
  * only RSA-OAEP-encrypted, the session key is derived from it on both
  * ends, the unsealed bytes come back AES-CFB-encrypted, and every command
  * and response carries an HMAC. Nothing readable crosses the bus, and a
- * TPM that is not the one the baseline names cannot answer (JB 16.09.:
+ * TPM that is not the one the baseline names cannot answer (
  * the sealing concept asked for encrypted sessions from the start).
  */
 
@@ -1073,7 +1073,7 @@ tpm_nv_index_read(uint32_t index, uint64_t *out)
 
 /*
  * NV_Write of a whole index under a salted session whose policy is
- * PolicyPCR over the selection (the anchor indices, A-Strich: the loader
+ * PolicyPCR over the selection (the anchor indices: the loader
  * writes while the cap PCR still holds its boot value). The index
  * authorizes itself (empty authValue); the data go as one TPM2B at offset 0.
  */

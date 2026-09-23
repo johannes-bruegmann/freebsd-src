@@ -49,7 +49,7 @@
 #include <crypto/sha2/sha256.h>
 
 #define	RECORD_MAGIC	0x454c5652u	/* "ELVR" */
-#define	RECORD_VERSION	2u	/* B1: NVMe hours/units, the medium letter */
+#define	RECORD_VERSION	2u	/* NVMe hours/units, the medium letter */
 
 struct record_body {
 	uint32_t	magic;
@@ -62,17 +62,17 @@ struct record_body {
 	uint64_t	tpm_nvcount;	/* our NV counter after increment */
 	uint64_t	nvme_cycles;	/* NVMe power cycles at commit */
 	uint64_t	nvme_unsafe;	/* NVMe unsafe shutdowns at commit */
-	uint64_t	nvme_hours;	/* NVMe power-on hours at commit (B1) */
-	uint64_t	nvme_units_read;	/* NVMe data units read at commit (B1) */
-	uint64_t	nvme_units_written;	/* NVMe data units written at commit (B1) */
+	uint64_t	nvme_hours;	/* NVMe power-on hours at commit */
+	uint64_t	nvme_units_read;	/* NVMe data units read at commit */
+	uint64_t	nvme_units_written;	/* NVMe data units written at commit */
 	uint8_t		chain[SHA256_DIGEST_LENGTH];	/* this boot's link */
 	uint8_t		flags;		/* RECORD_F_* of that boot */
-	uint8_t		medium;		/* the medium's letter ('a', 'b'; 0 unknown) (B1) */
+	uint8_t		medium;		/* the medium's letter ('a', 'b'; 0 unknown) */
 	uint8_t		pad[6];
 };
 
 /*
- * The machine-local anchor (A-Strich, B1): the pair the record carries
+ * The machine-local anchor: the pair the record carries
  * per medium, written by the loader into a TPM NV index whose policy is
  * PolicyPCR over the cap PCR in its BOOT state, then the PCR is extended
  * (the cap) -- root at runtime cannot rewrite it. The tag is
@@ -119,14 +119,14 @@ const struct record_state	*record_load(void);	/* once; cached */
 const struct record_state	*record_state(void);
 bool				 record_secret_present(void);
 
-/* B1: the anchor and the shutdown index as read this boot (once; cached) */
+/* the anchor and the shutdown index as read this boot (once; cached) */
 const struct anchor_state	*record_anchor_state(void);
 const struct anchor_state	*record_shutdown_state(void);
-/* B1: the letter stamped on the medium (\EFI\elvboot\medium), 0 unknown */
+/* the letter stamped on the medium (\EFI\elvboot\medium), 0 unknown */
 uint8_t				 record_medium_letter(void);
-/* B1: how often the boot answer had to be typed again (0 or 1) */
+/* how often the boot answer had to be typed again (0 or 1) */
 unsigned int			 record_answer_retries(void);
-/* B1: the digest every cap extends into the cap PCR (shared with elvbootd) */
+/* the digest every cap extends into the cap PCR (shared with elvbootd) */
 extern const uint8_t		 record_cap_digest[SHA256_DIGEST_LENGTH];
 
 /* geli_keys.c: derive the root's user key in the loader (see there) */

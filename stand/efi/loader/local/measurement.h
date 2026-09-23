@@ -263,7 +263,7 @@ struct measurement	measure_pcr(int argc, CHAR16 *argv[]);
 struct measurement	measure_nvme(int argc, CHAR16 *argv[]);
 
 /*
- * --- B1 Zeitanker (measure_record.c, measure_platform.c) ---
+ * --- the time anchors (measure_record.c, measure_platform.c) ---
  * Assumption: wall time is the RTC, which anyone with the setup can set;
  * TPM clock and NVMe counters only grow under power. Nothing here can
  * guarantee that a long storage is noticed -- what it guarantees is that
@@ -310,7 +310,7 @@ struct measurement	measure_efivars_foreign(int argc, CHAR16 *argv[]);
  * measure_attempts      the hidden lines typed that the boot did not ask
  *                       for: all attempts minus the two the boot takes,
  *                       minus one per interactive gate action, minus the
- *                       boot answer's one retry (B1, JB 23.09.; expected 0)
+ *                       boot answer's one retry (expected 0)
  */
 struct measurement	measure_time_boot(int argc, CHAR16 *argv[]);
 struct measurement	measure_time_prompt(int argc, CHAR16 *argv[]);
