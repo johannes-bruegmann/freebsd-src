@@ -382,7 +382,10 @@ diagnose_storage_gap(int argc __unused, CHAR16 *argv[] __unused,
 /*
  * The clocks in order: a forged RTC must still have advanced at least as
  * far as the TPM clock and as the NVMe's power-on hours, both of which
- * only grow under power (skew: loader.trust.clock.skew.s).
+ * only grow under power (skew: loader.trust.clock.skew.s). The power-on
+ * hours count whole hours at an unknown phase: a step of h hours proves
+ * only that at least (h - 1) * 3600 seconds passed, so that is the lower
+ * bound the RTC must have covered (a step of one hour proves nothing).
  * 1 iff rtc_diff + skew >= tpm_diff and rtc_diff + skew >= hours_diff.
  */
 static bool
@@ -390,13 +393,15 @@ clock_order(uint64_t *rtc_diff, uint64_t *tpm_diff, uint64_t *hours_diff_s)
 {
 	const struct record_state *rs = record_state();
 	struct nvme_smart ns;
-	uint64_t gap;
+	uint64_t gap, hours;
 
 	if (!storage_gap(&gap, rtc_diff, tpm_diff))
 		return (false);
 	*hours_diff_s = 0;
-	if (nvme_smart(&ns) && ns.power_on_hours >= rs->prev.nvme_hours)
-		*hours_diff_s = (ns.power_on_hours - rs->prev.nvme_hours) * 3600;
+	if (nvme_smart(&ns) && ns.power_on_hours > rs->prev.nvme_hours) {
+		hours = ns.power_on_hours - rs->prev.nvme_hours;
+		*hours_diff_s = (hours - 1) * 3600;
+	}
 	return (true);
 }
 
