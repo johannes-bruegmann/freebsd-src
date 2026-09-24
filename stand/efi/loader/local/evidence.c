@@ -61,7 +61,7 @@ evidence_note_appraisal(unsigned int phase, const struct appraisal *a)
 	 * saw a claim FAIL: a gate whose every claim was skipped -- the answer
 	 * classes on a boot without a prompt -- is unmeasured, not broken, and
 	 * the book says "skipped", not "failed". Counting is measurement;
-	 * TAINTING is a decision, taint_act's alone (JB 17.09.: a mistyped
+	 * TAINTING is a decision, taint_act's alone (a mistyped
 	 * boot answer failed kernelpost and, through the implicit taint, the
 	 * custody gate of every boot -- a tell is not a tamper).
 	 */

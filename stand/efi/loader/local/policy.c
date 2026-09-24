@@ -146,6 +146,24 @@ post_of(enum phase ph)
 	return ((enum phase)(ph + 1));
 }
 
+/*
+ * The policies bound in this build, over every phase. Zero is the
+ * checkout's own foundation.c (no gate, no claim): a loader that would
+ * measure nothing and still open the root. It refuses before the dialog.
+ */
+static unsigned int
+policies_bound(void)
+{
+	const struct policy *p;
+	enum phase ph;
+	unsigned int n = 0;
+
+	for (ph = PHASE_BOOT; ph <= PHASE_KERNEL_POST; ph++)
+		for (p = phase_policies(ph); p->gate != NULL; p++)
+			n++;
+	return (n);
+}
+
 void
 local_run(enum phase ph, int argc, CHAR16 *argv[])
 {
@@ -153,6 +171,9 @@ local_run(enum phase ph, int argc, CHAR16 *argv[])
 	enum phase post = post_of(ph);
 
 	evidence_args(argc, argv);
+	if (ph == PHASE_KERNEL && policies_bound() == 0)
+		halt_boot("no gate bound: this loader was built from the checkout's "
+		    "empty foundation.c (stage foundation make, then stage make)");
 	/*
 	 * KERNEL: the gates measure; none of them halts or asks for a
 	 * password (unlock_act, bound where the owner wants an informed

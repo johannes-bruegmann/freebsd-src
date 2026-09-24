@@ -20,9 +20,9 @@
  * and nothing else; the loader cannot tell disk0p1 from nda0p1, so it
  * tries each provider's set in turn, then the passphrase alone, with the
  * PBKDF2 part computed once. Feeding every preloaded key file to every
- * partition, as the first version did, is a wrong key (11.09.: "Bad GELI
+ * partition, as the first version did, is a wrong key ("Bad GELI
  * key" twice per attempt). Every call is a fresh attempt: a wrong line
- * costs one derivation and nothing sticks (16.09.: a typo cached by the
+ * costs one derivation and nothing sticks (a typo cached by the
  * Lua prompt poisoned the one attempt per boot). No prompt comes from
  * here. The derived keys travel to the kernel in the keybuf like any
  * loader key, so the kernel skips its own PBKDF2 and asks nothing. Whole
@@ -121,7 +121,7 @@ keys_partread(void *vdev __unused, void *priv, off_t off, void *buf,
  * providers the loader itself may attach (geli init -g, GELIBOOT): the root
  * the kernel attaches at boot (geli init -b, BOOT) with key files and the
  * passphrase -- on illyria with AUTH, which the loader cannot read -- fell
- * through it and the record stayed absent (11.09.). Nothing is attached or
+ * through it and the record stayed absent. Nothing is attached or
  * read here. Swap (ONETIME) has no user key and is skipped.
  */
 static bool
@@ -243,7 +243,7 @@ keys_derive(const struct g_eli_metadata *md, const char *passphrase,
 	/*
 	 * The slot of key files alone (geli setkey -P): the passphrase is
 	 * the TPM's to judge, the disk takes the medium's file and the TPM's
-	 * (JB 17.09.: the duress passphrase must open the disk too, and GELI
+	 * (the duress passphrase must open the disk too, and GELI
 	 * has two slots -- the second is the recovery passphrase). Tried
 	 * first, before the PBKDF2 the other slots cost.
 	 */
@@ -333,7 +333,7 @@ keys_partition(void *arg, const char *partname __unused,
  * Derive and save the user key of the first GELI partition the cached
  * passphrase and the preloaded key files open. 1 iff a key is saved now.
  * One attempt per boot once a passphrase is there: every record claim
- * asks, the disks and the PBKDF2 cost are paid once (11.09.).
+ * asks, the disks and the PBKDF2 cost are paid once.
  */
 unsigned int
 geli_keys_prepare(const char *passphrase, bool keyfiles_only)

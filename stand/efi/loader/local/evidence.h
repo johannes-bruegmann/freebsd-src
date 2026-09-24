@@ -14,7 +14,7 @@
  * measure_time_prompt, measure_attempts) and of the handover word; it is
  * never published in clear -- the taint bit in particular reaches
  * earlboot only inside the word. The duress bit is the TPM's verdict
- * (tpm_keyfile.h), never a hash comparison in the loader (JB 16.09.).
+ * (tpm_keyfile.h), never a hash comparison in the loader.
  *
  * Not a catalog: internal to the local layer.
  */

@@ -70,7 +70,7 @@ readsecret(char *buf, size_t sz)
 	int c;
 	bool first = true;
 
-	/* Nothing typed before the prompt is the secret (12.09.). */
+	/* Nothing typed before the prompt is the secret. */
 	while (ischar())
 		(void)getchar();
 	clock_now(&t0);
@@ -84,7 +84,7 @@ readsecret(char *buf, size_t sz)
 		}
 		first = false;
 		tprev = tk;
-		if (c == '\b' || c == 0x7f) {	/* backspace edits the line (18.09.) */
+		if (c == '\b' || c == 0x7f) {	/* backspace edits the line */
 			if (n > 0)
 				buf[--n] = '\0';
 			continue;
@@ -263,7 +263,7 @@ action_report(const struct appraisal *a)
 	 * A key already in the buffer -- the Enter that chose this medium
 	 * in the firmware's boot menu -- would end the pause before it is
 	 * read, and the key then pressed for it would go to the next prompt
-	 * (illyria 12.09.: "as if the key were handed on to GELI").
+	 * ("as if the key were handed on to GELI").
 	 */
 	while (ischar())
 		(void)getchar();
@@ -271,7 +271,7 @@ action_report(const struct appraisal *a)
 	 * The report is the last word the owner gets before the dialog; x
 	 * lets them act on it: power off, with the halt counter raised first
 	 * so the next boot reports HaltQuiet -- a halt at the report is a
-	 * halt like any other, it must leave its trace (JB 18.09.).
+	 * halt like any other, it must leave its trace.
 	 */
 	printf("Press any key to continue, x to power off.\n");
 	c = getchar();
@@ -487,8 +487,8 @@ action_confirm(const struct appraisal *a)
  * Reports which claims failed, then asks for the one passphrase the
  * loader still holds a hash of (LOADER_TRUST_UNLOCK_SECRET, site.mk):
  * three tries, then the boot halts. The hash opens nothing and tells no
- * second role apart -- that is why it may live in the binary (JB
- * 16.09.). Without a hash compiled in the action reports and continues,
+ * second role apart -- that is why it may live in the binary.
+ * Without a hash compiled in the action reports and continues,
  * so an unprovisioned build cannot brick. Bind it where a deviation is
  * worth a decision: the chain on the medium after a boot from the
  * reserve card, a moved inventory set.
@@ -512,7 +512,7 @@ action_unlock(const struct appraisal *a)
 		sha256_hex(got, strlen(got), hash);
 		explicit_bzero(got, sizeof(got));
 		if (strcmp(hash, LOADER_TRUST_UNLOCK_SECRET) == 0) {
-			evidence_set_unlocked();	/* the word tells earlboot (JB 19.09.) */
+			evidence_set_unlocked();	/* the word tells earlboot */
 			return;
 		}
 		printf("wrong.\n");

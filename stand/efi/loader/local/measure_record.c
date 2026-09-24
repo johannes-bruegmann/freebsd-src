@@ -720,7 +720,7 @@ diagnose_record(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 	    "geli=%s,counter=%llu,last=%s,bootms=%llu,flags=%u,chain=%s,medium=%c", fp,
 	    (unsigned long long)rs->prev.counter, iso,
 	    (unsigned long long)rs->prev.boot_ms,
-	    (unsigned int)(rs->prev.flags & ~RECORD_F_DURESS),	/* the duress bit stays in the word (illyria 17.09.: flags=7 in kenv) */
+	    (unsigned int)(rs->prev.flags & ~RECORD_F_DURESS),	/* the duress bit stays in the word (flags=7 in kenv) */
 	    rs->medium_answered ? (rs->chain_on_medium ? "match" : "differs") :
 	    "unread", rs->prev.medium != 0 ? rs->prev.medium : '-');
 }

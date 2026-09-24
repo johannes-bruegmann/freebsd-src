@@ -281,7 +281,7 @@ record_secret_present(void)
  * 8 hex of an HMAC over the GELI part of the material, keyed from the
  * material: equal across boots iff the GELI-derived key is the same. When a
  * record is present but invalid, this tells whether the key or the answer
- * moved (12.09.). Reveals nothing about either. "-" without material.
+ * moved. Reveals nothing about either. "-" without material.
  */
 void
 record_geli_fingerprint(char out[9])

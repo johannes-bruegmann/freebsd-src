@@ -23,7 +23,7 @@
  * opens with the three factors (geli_open.h). A hash in the binary on
  * the owner's medium is a hash an attacker compares against at home --
  * the one left, unlock_act's, opens nothing and has no second role to
- * give away (JB 16.09.).
+ * give away.
  */
 
 #ifndef _LOCAL_GATE_H_

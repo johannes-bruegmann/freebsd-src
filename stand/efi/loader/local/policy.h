@@ -111,7 +111,7 @@ struct policy {
  *
  * No predicate asks whether a password matched against a hash: the TPM
  * decides (tpm_keyfile.h), and the one hash left, unlock_act's, opens
- * nothing -- it lets a boot with a deviation go on (JB 16.09.).
+ * nothing -- it lets a boot with a deviation go on.
  */
 bool	when_always(const struct appraisal *);
 bool	when_fail(const struct appraisal *);
@@ -135,7 +135,7 @@ bool	when_duress(const struct appraisal *);
  * static struct action for an action), named by the table and the
  * binding's position; the second pass writes the rows, referring to
  * the generated objects by the same name. Nothing here runs: the runtime
- * sees function and action pointers as it always did (JB 10.09.).
+ * sees function and action pointers as it always did.
  *
  *   POLICY_TABLE_DEFINE(loaderlock_bindings,
  *       FIRE(when_always, publish_act),

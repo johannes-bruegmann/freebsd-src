@@ -28,7 +28,7 @@
  * counter in the TPM NV (an increment-only index, a trace root cannot
  * undo) and sets the bit the handover word carries to earlboot; nothing
  * on the console differs. Offline there is nothing to test: the auth
- * values live in the TPM (JB 16.09., Konzept loader-drei-faktoren).
+ * values live in the TPM.
  *
  * Leafs, loader.trust.tpm.*: key.handle (the storage key the sessions
  * salt to, 0x81000001), keyfile.handles ("0x81010001 0x81010002": the

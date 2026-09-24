@@ -13,8 +13,8 @@
 # KENV reading a captured kenv dump, SHUTDOWN writing a note, the state dir
 # on a tmpfs. Nothing here runs by itself.
 #
-# JB 08.09.: refactor so the generated scripts can be tested without root
-# and without side effects.
+# The refactor: the generated scripts can be tested without root and
+# without side effects.
 #
 # The "# test:" mark says what the test run puts in a tool's place:
 #   kenv     a function answering from the captured dump (key="value" lines)

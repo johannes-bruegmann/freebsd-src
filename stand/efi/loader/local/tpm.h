@@ -14,7 +14,7 @@
  * millisecond clock), the SHA256 bank of PCR 0..7 (the firmware's own
  * measured boot), and elvboot's NV counter index, which the loader
  * increments once per boot (NV_Increment cannot be undone). One thing
- * is unsealed (tpm_unseal, since 15.09.2026): a persistent sealed object
+ * is unsealed (tpm_unseal): a persistent sealed object
  * under a PCR policy -- the GELI key file of tpm_keyfile.c. The policy
  * session is the TPM's own (PolicyPCR against its current PCRs); the
  * loader never sees a policy digest or an auth value, the object carries

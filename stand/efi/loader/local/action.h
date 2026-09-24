@@ -57,7 +57,7 @@
  *
  * The passphrase of the disk is never compared here: the dialog of the
  * boot (geli_open.h) hands it to the TPM, which decides by policy and
- * auth value (tpm_keyfile.h), then to GELI (JB 16.09.).
+ * auth value (tpm_keyfile.h), then to GELI.
  * reveal_act    show four words derived from the gate secret and the ledger
  *               so the HUMAN recognises the honest loader before typing a
  *               passphrase (Qubes AEM inverted); assumes the words are read

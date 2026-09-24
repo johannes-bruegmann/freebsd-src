@@ -24,7 +24,7 @@ log_act() {
 	$LOGGER -t elvboot -p security.notice "$(elv_finding "$1")"
 	# earlboot runs before syslogd: the line above reaches nobody. It is
 	# kept for elvbootd's replay_act (STARTUP, syslogd up), which re-logs
-	# every kept line and removes the file (illyria 18.09.: no fish line
+	# every kept line and removes the file (no fish line
 	# in any log although the gate had passed).
 	$MKDIR -p "$ELV_STATE"
 	elv_finding "$1" >> "$ELV_STATE/pending-log"
@@ -182,8 +182,8 @@ quarantine_act() {
 
 # shutdown_act -- the hard stop: continuing to run is worse than stopping.
 # Console and broadcast say only that a policy stopped the boot; which
-# gate (an answer class, a claim) stays in the spool, root-only (JB
-# 18.09.: the line before the halt must not name the class).
+# gate (an answer class, a claim) stays in the spool, root-only: the
+# line before the halt must not name the class.
 shutdown_act() {
 	printf 'elvboot: shutdown by policy\n' > /dev/console
 	halt_count_act "$1"
@@ -217,7 +217,7 @@ halt_count_act() {
 
 # halt_count_once <index> <session file> -- one attempt: policy session,
 # PolicyCommandCode(NV_Increment), the increment, flush; the tools' output
-# is the caller's evidence (illyria 18.09.: two probes raised nothing and
+# is the caller's evidence (two probes raised nothing and
 # earlboot had swallowed the reason)
 halt_count_once() {
 	$TPM2_STARTAUTHSESSION --policy-session --session="$2" || return 1

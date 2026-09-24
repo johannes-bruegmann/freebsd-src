@@ -140,7 +140,7 @@ smart_anchor_act() {
 # THIS boot means earlboot never ran (or was removed) -- itself a finding.
 # earlboot persists under the name of ITS gate (appraisal-custody), which
 # elvbootd does not know; so the question is whether any appraisal is
-# younger than the kernel's boot time (kern.boottime). Illyria 16.09.: the
+# younger than the kernel's boot time (kern.boottime). the
 # old test looked for appraisal-<loader gate> and failed every boot.
 sentinel_act() {
 	local boot="" f
