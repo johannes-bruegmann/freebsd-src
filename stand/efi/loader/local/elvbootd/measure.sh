@@ -149,7 +149,7 @@ measure_ntp_gap() {
 	st=$($NTPQ -c 'rv 0 stratum' 2>/dev/null | $SED -n 's/.*stratum=\([0-9]*\).*/\1/p')
 	[ -n "$st" ] && [ "$st" -lt 16 ] || return 0
 	now=$($DATE +%s)
-	bt=$($SYSCTL -n kern.boottime 2>/dev/null | $SED -n 's/.*sec = \([0-9]*\).*/\1/p')
+	bt=$($SYSCTL -n kern.boottime 2>/dev/null | $SED -n 's/^{ sec = \([0-9]*\),.*/\1/p')
 	[ -n "$bt" ] || return 0
 	upnow=$((now - bt))
 	expect=$((rtc + upnow - up))
@@ -163,7 +163,7 @@ diagnose_ntp_gap() {
 	[ -f "$ELV_STATE/clock-at-boot" ] || { printf 'unknown\n'; return 0; }
 	read -r rtc up < "$ELV_STATE/clock-at-boot" || { printf 'unknown\n'; return 0; }
 	now=$($DATE +%s)
-	bt=$($SYSCTL -n kern.boottime 2>/dev/null | $SED -n 's/.*sec = \([0-9]*\).*/\1/p')
+	bt=$($SYSCTL -n kern.boottime 2>/dev/null | $SED -n 's/^{ sec = \([0-9]*\),.*/\1/p')
 	[ -n "$bt" ] || { printf 'unknown\n'; return 0; }
 	printf 'gap.s=%s\n' "$((now - (rtc + (now - bt) - up)))"
 }

@@ -260,7 +260,7 @@ clock_note_act() {
 	local now bt
 	$MKDIR -p "$ELV_STATE"
 	now=$($DATE +%s)
-	bt=$($SYSCTL -n kern.boottime 2>/dev/null | $SED -n 's/.*sec = \([0-9]*\).*/\1/p')
+	bt=$($SYSCTL -n kern.boottime 2>/dev/null | $SED -n 's/^{ sec = \([0-9]*\),.*/\1/p')
 	[ -n "$bt" ] || return 0
 	printf '%s %s\n' "$now" "$((now - bt))" > "$ELV_STATE/clock-at-boot"
 }
