@@ -143,6 +143,12 @@ sysctl_g_eli_minbufs(SYSCTL_HANDLER_ARGS)
  * there are multiple providers using the same passphrase.
  */
 static char cached_passphrase[256];
+static u_int g_eli_boot_prompt = 1;
+SYSCTL_UINT(_kern_geom_eli, OID_AUTO, boot_prompt, CTLFLAG_RDTUN,
+    &g_eli_boot_prompt, 0,
+    "Ask for the passphrase at the console when a provider marked for boot "
+    "did not attach with the key buffer, the key files and the cached "
+    "passphrase (0: leave it detached, the boot never blocks on a prompt)");
 static u_int g_eli_boot_passcache = 1;
 TUNABLE_INT("kern.geom.eli.boot_passcache", &g_eli_boot_passcache);
 SYSCTL_UINT(_kern_geom_eli, OID_AUTO, boot_passcache, CTLFLAG_RD,
@@ -1419,6 +1425,13 @@ g_eli_taste(struct g_class *mp, struct g_provider *pp, int flags __unused)
 				memcpy(passphrase, cached_passphrase,
 				    sizeof(passphrase));
 			} else {
+				if (!g_eli_boot_prompt) {
+					G_ELI_DEBUG(1, "Not asking for the "
+					    "passphrase of %s (boot_prompt=0).",
+					    pp->name);
+					g_eli_keyfiles_clear(pp->name);
+					return (NULL);
+				}
 				printf("Enter passphrase for %s: ", pp->name);
 				showpass = g_eli_visible_passphrase;
 				if ((md.md_flags & G_ELI_FLAG_GELIDISPLAYPASS) != 0)
