@@ -27,6 +27,7 @@
 
 #define	TPM_KEYFILE_MAX		128	/* a sealed blob is at most 128 bytes */
 #define	TPM_KEYFILE_PROVLEN	16
+#define	TPM_KEYFILE_STEPS(a)	(sizeof(a) / sizeof((a)[0]))
 
 static struct tpm_keyfile_state st;
 
@@ -84,99 +85,82 @@ hex_publish(const char *name, const uint8_t *d, size_t len)
 	setenv(name, buf, 1);
 }
 
-void
-tpm_keyfile_prepare(const char *passphrase)
+/* A handle or index leaf, "0x8101...": the whole string, 32 bits. */
+static bool
+parse_handle(const char *s, uint32_t *out)
 {
-	const char *kh = getenv("loader.trust.tpm.key.handle");
-	const char *h = getenv("loader.trust.tpm.keyfile.handles");
-	const char *p = getenv("loader.trust.tpm.keyfile.providers");
-	const char *pc = getenv("loader.trust.tpm.keyfile.pcrs");
-	const char *nv = getenv("loader.trust.tpm.counter.nv");
-	uint8_t secret[TPM_KEYFILE_MAX], auth[SHA256_DIGEST_LENGTH];
-	uint8_t kd[SHA256_DIGEST_LENGTH], *kdp = NULL;
+	unsigned long v;
+	char *end;
+
+	if (s == NULL)
+		return (false);
+	v = strtoul(s, &end, 0);
+	if (end == s || *end != '\0' || v > 0xffffffffUL)
+		return (false);
+	*out = (uint32_t)v;
+	return (true);
+}
+
+static int
+nibble(char c)
+{
+	if (c >= '0' && c <= '9')
+		return (c - '0');
+	if (c >= 'a' && c <= 'f')
+		return (c - 'a' + 10);
+	if (c >= 'A' && c <= 'F')
+		return (c - 'A' + 10);
+	return (-1);
+}
+
+/* The sealed counter value: 16 hex characters, big-endian, as tpm2_nvread
+ * prints the index's 8 bytes -- into the 8 bytes and the number. */
+static bool
+parse_sealed(const char *s, uint8_t out[8], uint64_t *v)
+{
+	size_t i;
+	int hi, lo;
+
+	if (s == NULL || strlen(s) != 16)
+		return (false);
+	*v = 0;
+	for (i = 0; i < 8; i++) {
+		hi = nibble(s[2 * i]);
+		lo = nibble(s[2 * i + 1]);
+		if (hi < 0 || lo < 0)
+			return (false);
+		out[i] = (uint8_t)(hi << 4 | lo);
+		*v = *v << 8 | out[i];
+	}
+	return (true);
+}
+
+/* The two indices as they stand, for the diagnosis: read with owner auth
+ * before any attempt, so a boot after a duress event still explains itself. */
+static void
+read_indices(uint32_t pin, uint32_t count)
+{
+	uint64_t v;
+
+	if (tpm_nv_owner_read(pin, &v)) {
+		st.pin_read = true;
+		st.pin_count = (uint32_t)(v >> 32);
+		st.pin_limit = (uint32_t)v;
+	}
+	if (tpm_nv_owner_read(count, &v)) {
+		st.count_read = true;
+		st.count = v;
+	}
+}
+
+/* The secret into the preload area, once per named provider. */
+static void
+place(const char *p, uint8_t *secret, size_t len)
+{
 	char prov[TPM_KEYFILE_PROVLEN], type[TPM_KEYFILE_PROVLEN + 24];
 	const char *q;
-	char *end;
-	unsigned long keyhandle, handle, duress = 0, nvindex = 0;
-	uint32_t mask;
-	size_t len, n;
-	SHA256_CTX ctx;
-	bool duress_opened = false;
+	size_t n;
 
-	if (st.unsealed)
-		return;				/* placed on an earlier line */
-	memset(&st, 0, sizeof(st));
-	if (kh == NULL && h == NULL && p == NULL && pc == NULL) {
-		st.reason = "not configured";
-		return;
-	}
-	st.configured = true;
-	if (kh == NULL || h == NULL || p == NULL || pc == NULL) {
-		st.reason = "incomplete: key.handle, keyfile.handles, providers and pcrs";
-		return;
-	}
-	keyhandle = strtoul(kh, &end, 0);
-	if (end == kh || *end != '\0' || keyhandle > 0xffffffffUL) {
-		st.reason = "bad key.handle";
-		return;
-	}
-	/* handles: the object of the owner's line, then the one whose opening counts */
-	handle = strtoul(h, &end, 0);
-	if (end == h || (*end != '\0' && *end != ' ') || handle > 0xffffffffUL) {
-		st.reason = "bad handles";
-		return;
-	}
-	while (*end == ' ')
-		end++;
-	if (*end != '\0') {
-		const char *h2 = end;
-
-		duress = strtoul(h2, &end, 0);
-		if (end == h2 || *end != '\0' || duress > 0xffffffffUL) {
-			st.reason = "bad handles";
-			return;
-		}
-	}
-	if (nv != NULL) {
-		nvindex = strtoul(nv, &end, 0);
-		if (end == nv || *end != '\0' || nvindex > 0xffffffffUL) {
-			st.reason = "bad counter.nv";
-			return;
-		}
-	}
-	if (!tpm_parse_pcrs(pc, &mask)) {
-		st.reason = "bad pcrs";
-		return;
-	}
-	if (tpm_key_digest((uint32_t)keyhandle, kd))
-		hex_publish("loader.trust.tpm.key.sha256", kd, sizeof(kd));
-	if (key_digest_baseline(kd)) {
-		kdp = kd;
-		st.verified = true;
-	}
-	/* the auth value: SHA256 of the line, what tpm2_create -p hex: took */
-	SHA256_Init(&ctx);
-	SHA256_Update(&ctx, passphrase, strlen(passphrase));
-	SHA256_Final(auth, &ctx);
-	if (!tpm_unseal((uint32_t)keyhandle, kdp, (uint32_t)handle, mask,
-	    auth, sizeof(auth), secret, sizeof(secret), &len)) {
-		const char *why = tpm_last_error();
-
-		if (duress == 0 || !tpm_unseal((uint32_t)keyhandle, kdp, (uint32_t)duress,
-		    mask, auth, sizeof(auth), secret, sizeof(secret), &len)) {
-			st.reason = why;
-			explicit_bzero(auth, sizeof(auth));
-			return;
-		}
-		duress_opened = true;
-	}
-	explicit_bzero(auth, sizeof(auth));
-	st.unsealed = true;
-	if (duress_opened) {
-		evidence_set_duress();
-		if (nvindex != 0)
-			(void)tpm_nv_policy_increment((uint32_t)keyhandle, (uint32_t)nvindex);
-	}
 	st.reason = *p == '\0' ? "unsealed, no provider named" : "ok";
 	for (q = p; *q != '\0'; ) {
 		while (*q == ' ')
@@ -201,6 +185,142 @@ tpm_keyfile_prepare(const char *passphrase)
 		else
 			st.reason = "no room for the key file";
 	}
+}
+
+void
+tpm_keyfile_prepare(const char *passphrase)
+{
+	const char *kh = getenv("loader.trust.tpm.key.handle");
+	const char *h = getenv("loader.trust.tpm.keyfile.handles");
+	const char *p = getenv("loader.trust.tpm.keyfile.providers");
+	const char *pc = getenv("loader.trust.tpm.keyfile.pcrs");
+	const char *nv = getenv("loader.trust.tpm.counter.nv");
+	const char *pin = getenv("loader.trust.tpm.duress.nv");
+	const char *cnt = getenv("loader.trust.tpm.duress.count.nv");
+	const char *sealed = getenv("loader.trust.tpm.duress.count.sealed");
+	const char *dp = getenv("loader.trust.tpm.decoy.providers");
+	uint8_t secret[TPM_KEYFILE_MAX], auth[SHA256_DIGEST_LENGTH];
+	uint8_t kd[SHA256_DIGEST_LENGTH], *kdp = NULL;
+	uint8_t sealed8[8];
+	char h1[16];
+	const char *h2;
+	uint32_t keyhandle, handle, duress = 0, nvindex = 0, pinindex, cntindex;
+	uint32_t mask;
+	size_t len, n;
+	SHA256_CTX ctx;
+	bool ok, duress_opened = false;
+
+	if (st.unsealed)
+		return;				/* placed on an earlier line */
+	memset(&st, 0, sizeof(st));
+	if (kh == NULL && h == NULL && p == NULL && pc == NULL &&
+	    pin == NULL && cnt == NULL && sealed == NULL && dp == NULL) {
+		st.reason = "not configured";
+		return;
+	}
+	st.configured = true;
+	if (kh == NULL || h == NULL || p == NULL || pc == NULL ||
+	    pin == NULL || cnt == NULL || sealed == NULL) {
+		st.reason = "incomplete: key.handle, keyfile.handles, providers, "
+		    "pcrs, duress.nv, duress.count.nv, duress.count.sealed";
+		return;
+	}
+	if (!parse_handle(kh, &keyhandle)) {
+		st.reason = "bad key.handle";
+		return;
+	}
+	/* handles: the owner's object, then the duress one */
+	for (n = 0; h[n] != '\0' && h[n] != ' ' && n < sizeof(h1) - 1; n++)
+		h1[n] = h[n];
+	h1[n] = '\0';
+	if (!parse_handle(h1, &handle)) {
+		st.reason = "bad handles";
+		return;
+	}
+	h2 = h + n;
+	while (*h2 == ' ')
+		h2++;
+	if (*h2 != '\0' && !parse_handle(h2, &duress)) {
+		st.reason = "bad handles";
+		return;
+	}
+	if (nv != NULL && !parse_handle(nv, &nvindex)) {
+		st.reason = "bad counter.nv";
+		return;
+	}
+	if (!parse_handle(pin, &pinindex)) {
+		st.reason = "bad duress.nv";
+		return;
+	}
+	if (!parse_handle(cnt, &cntindex)) {
+		st.reason = "bad duress.count.nv";
+		return;
+	}
+	if (!parse_sealed(sealed, sealed8, &st.count_sealed)) {
+		st.reason = "bad duress.count.sealed (16 hex characters)";
+		return;
+	}
+	if (!tpm_parse_pcrs(pc, &mask)) {
+		st.reason = "bad pcrs";
+		return;
+	}
+	read_indices(pinindex, cntindex);
+	if (tpm_key_digest(keyhandle, kd))
+		hex_publish("loader.trust.tpm.key.sha256", kd, sizeof(kd));
+	if (key_digest_baseline(kd)) {
+		kdp = kd;
+		st.verified = true;
+	}
+	/* the auth value: SHA256 of the line, what tpm2_create -p and
+	 * tpm2_nvdefine -p took (elebake stage tpm seal, stage tpm duress) */
+	SHA256_Init(&ctx);
+	SHA256_Update(&ctx, passphrase, strlen(passphrase));
+	SHA256_Final(auth, &ctx);
+	{
+		/* owner: PCR, the object's auth value, both indices untouched */
+		const struct tpm_policy_step owner[] = {
+			{ .op = TPM_POLICY_PCR, .mask = mask },
+			{ .op = TPM_POLICY_AUTHVALUE },
+			{ .op = TPM_POLICY_NV, .index = pinindex, .oplen = 4,
+			  .offset = 0, .eo = TPM_EO_EQ, .operand = { 0, 0, 0, 0 } },
+			{ .op = TPM_POLICY_NV, .index = cntindex, .oplen = 8,
+			  .offset = 0, .eo = TPM_EO_EQ, .operand = { sealed8[0],
+			  sealed8[1], sealed8[2], sealed8[3], sealed8[4],
+			  sealed8[5], sealed8[6], sealed8[7] } },
+		};
+		/* duress: the PIN index proves the line (and counts), then PCR */
+		const struct tpm_policy_step decoy[] = {
+			{ .op = TPM_POLICY_SECRET, .index = pinindex,
+			  .auth = auth, .authlen = sizeof(auth) },
+			{ .op = TPM_POLICY_PCR, .mask = mask },
+		};
+
+		ok = tpm_unseal(keyhandle, kdp, handle, owner,
+		    TPM_KEYFILE_STEPS(owner), auth, sizeof(auth), secret,
+		    sizeof(secret), &len);
+		if (!ok) {
+			const char *why = tpm_last_error();
+
+			if (duress != 0 && tpm_unseal(keyhandle, kdp, duress,
+			    decoy, TPM_KEYFILE_STEPS(decoy), NULL, 0, secret,
+			    sizeof(secret), &len)) {
+				ok = true;
+				duress_opened = true;
+			} else
+				st.reason = why;
+		}
+	}
+	explicit_bzero(auth, sizeof(auth));
+	if (!ok)
+		return;
+	st.unsealed = true;
+	if (duress_opened) {
+		evidence_set_duress();
+		if (nvindex != 0)
+			(void)tpm_nv_policy_increment(keyhandle, nvindex);
+		place(dp != NULL ? dp : "", secret, len);
+	} else
+		place(p, secret, len);
 	explicit_bzero(secret, sizeof(secret));
 }
 

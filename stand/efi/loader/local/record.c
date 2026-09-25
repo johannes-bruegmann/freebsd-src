@@ -185,6 +185,26 @@ ikm_gather(void)
 	/* The loader may not have opened the root yet: the dialog (geli_open.c). */
 	if (!geli_ikm_digest(ikm))
 		geli_open_ensure();
+	if (evidence()->duress) {
+		/*
+		 * The decoy boot (tpm_keyfile.h): the root that opened is the
+		 * decoy's, no record of the production root can verify under
+		 * its key and none is written (policy.c takes the short way
+		 * out after this). The boot answer is still asked, once, and
+		 * dropped: the sequence at the console is the one of every
+		 * boot, and the seal is already dead.
+		 */
+		explicit_bzero(ikm, sizeof(ikm));
+		if (answer_wanted() && !asked) {
+			asked = true;
+			printf("\nBoot answer: ");
+			readsecret(answer, sizeof(answer));
+			printf("\n");
+			explicit_bzero(answer, sizeof(answer));
+		}
+		reason = "decoy boot: no record";
+		return (false);
+	}
 	if (!geli_ikm_digest(ikm)) {
 		reason = geli_keys_reason();
 		return (false);

@@ -66,6 +66,7 @@ struct _EFI_TCG2_PROTOCOL {
 #define	TPM_RS_PW		0x40000009u
 #define	TPM_RH_OWNER		0x40000001u
 #define	TPM_RH_NULL		0x40000007u
+#define	TPM_SE_HMAC		0x00
 #define	TPM_SE_POLICY		0x01
 #define	TPM_ALG_RSA		0x0001
 #define	TPM_ALG_AES		0x0006
@@ -76,6 +77,8 @@ struct _EFI_TCG2_PROTOCOL {
 #define	TPM_CC_Unseal		0x0000015eu
 #define	TPM_CC_FlushContext	0x00000165u
 #define	TPM_CC_StartAuthSession	0x00000176u
+#define	TPM_CC_PolicyNV		0x00000149u
+#define	TPM_CC_PolicySecret	0x00000151u
 #define	TPM_CC_PolicyPCR	0x0000017fu
 #define	TPM_CC_PolicyAuthValue	0x0000016bu
 #define	TPM_CC_PolicyCommandCode 0x0000016cu
@@ -324,9 +327,9 @@ tpm_pcr_bank(uint32_t mask, uint8_t out[static SHA256_DIGEST_LENGTH])
 	return (true);
 }
 
-/* NV_Read of our 8-byte counter index; owner (empty password) authorizes. */
+/* NV_Read of 8 bytes of an index; the owner (empty password) authorizes. */
 bool
-tpm_nv_counter_read(uint64_t *out)
+tpm_nv_owner_read(uint32_t index, uint64_t *out)
 {
 	uint8_t c[64], r[64];
 	struct bb b = { c, 10, sizeof(c) };
@@ -334,7 +337,7 @@ tpm_nv_counter_read(uint64_t *out)
 	uint32_t psize;
 
 	put32(&b, TPM_RH_OWNER);		/* authHandle */
-	put32(&b, LOADER_TRUST_TPM_NV_INDEX);	/* nvIndex */
+	put32(&b, index);			/* nvIndex */
 	put_auth_pw(&b);
 	put16(&b, 8);				/* size */
 	put16(&b, 0);				/* offset */
@@ -346,6 +349,13 @@ tpm_nv_counter_read(uint64_t *out)
 		return (false);
 	*out = get64(r + 16);
 	return (true);
+}
+
+/* Our per-boot counter index. */
+bool
+tpm_nv_counter_read(uint64_t *out)
+{
+	return (tpm_nv_owner_read(LOADER_TRUST_TPM_NV_INDEX, out));
 }
 
 bool
@@ -649,6 +659,8 @@ tpm_key_digest(uint32_t handle, uint8_t out[static SHA256_DIGEST_LENGTH])
 
 /* --- the session --- */
 
+static bool	nv_name(uint32_t, uint8_t[static 2 + SHA256_DIGEST_LENGTH]);
+
 struct session {
 	uint32_t	 handle;
 	uint8_t		 key[SHA256_DIGEST_LENGTH];	/* sessionKey */
@@ -660,7 +672,8 @@ struct session {
 };
 
 /*
- * A policy session, salted to the storage key and set up for parameter
+ * A session of <type> (TPM_SE_POLICY, or TPM_SE_HMAC for a plain
+ * authorization), salted to the storage key and set up for parameter
  * encryption (AES-128-CFB): the salt is OAEP-encrypted to the key with
  * the label "SECRET", the session key is KDFa(salt, "ATH", nonces). What
  * the TPM returns to this session is encrypted with a key nobody on the
@@ -668,7 +681,8 @@ struct session {
  * compute.
  */
 static bool
-session_start(const struct tpm_key *k, uint32_t keyhandle, struct session *s)
+session_start(const struct tpm_key *k, uint32_t keyhandle, uint8_t type,
+    struct session *s)
 {
 	uint8_t c[1024], r[128], salt[32], enc[512];
 	struct bb b = { c, 10, sizeof(c) };
@@ -704,7 +718,7 @@ session_start(const struct tpm_key *k, uint32_t keyhandle, struct session *s)
 	put16(&b, enclen);			/* encryptedSalt */
 	for (i = 0; i < enclen; i++)
 		put8(&b, enc[i]);
-	put8(&b, TPM_SE_POLICY);
+	put8(&b, type);				/* TPM_SE_POLICY or TPM_SE_HMAC */
 	put16(&b, TPM_ALG_AES);			/* symmetric: AES-128-CFB */
 	put16(&b, 128);
 	put16(&b, TPM_ALG_CFB);
@@ -794,6 +808,55 @@ policy_command_code(uint32_t session, uint32_t cc)
 	put32(&b, session);
 	put32(&b, cc);
 	finish(&b, TPM_ST_NO_SESSIONS, TPM_CC_PolicyCommandCode);
+	return (submit(&b, r, sizeof(r), &n));
+}
+
+/*
+ * PolicySecret: the session's policy comes to require the authValue of
+ * <index> (part 3, 23.4) -- the duress index, a PIN_PASS index that counts
+ * every successful authorization with its authValue. The value is proven,
+ * not sent: a second salted session of type HMAC carries it as part of
+ * its HMAC key (put_auth_session), exactly as the object's authValue is
+ * proven at Unseal. cpHash covers the names of both handles -- the index's
+ * from NV_ReadPublic, the policy session's is its handle -- and the four
+ * parameters, all empty: nonceTPM, cpHashA, policyRef (they narrow the
+ * assertion; the seal used none) and expiration 0 (session lifetime, no
+ * ticket). The HMAC session is single-use (continueSession clear): the
+ * TPM drops it with the command, the flush afterwards is for the failure
+ * path. Slots on the PTT: this is the second of three, briefly.
+ */
+static bool policy_secret(const struct tpm_key *, uint32_t, uint32_t, uint32_t,
+    const uint8_t *, size_t);
+
+/*
+ * PolicyNV: the session's policy comes to require that the index's oplen
+ * bytes at offset stand in relation <eo> to operand (part 3, 23.20); the
+ * owner authorizes the read (empty password, as tpm_nv_owner_read: the
+ * index needs OWNERREAD). The operand is hashed into the policy digest:
+ * it is the value sealed against. pinCount is a PIN index's first 4 bytes.
+ */
+static bool
+policy_nv(uint32_t session, uint32_t index, const uint8_t *operand,
+    uint16_t oplen, uint16_t offset, uint16_t eo)
+{
+	uint8_t c[128], r[64];
+	struct bb b = { c, 10, sizeof(c) };
+	size_t n, i;
+
+	if (oplen == 0 || oplen > 8) {
+		last_error = "PolicyNV operand";
+		return (false);
+	}
+	put32(&b, TPM_RH_OWNER);			/* authHandle: the owner reads */
+	put32(&b, index);				/* nvIndex */
+	put32(&b, session);				/* policySession */
+	put_auth_pw(&b);
+	put16(&b, oplen);				/* operandB */
+	for (i = 0; i < oplen; i++)
+		put8(&b, operand[i]);
+	put16(&b, offset);
+	put16(&b, eo);					/* operation */
+	finish(&b, TPM_ST_SESSIONS, TPM_CC_PolicyNV);
 	return (submit(&b, r, sizeof(r), &n));
 }
 
@@ -898,6 +961,45 @@ bad:
 	return (false);
 }
 
+static bool
+policy_secret(const struct tpm_key *k, uint32_t keyhandle, uint32_t session,
+    uint32_t index, const uint8_t *auth, size_t authlen)
+{
+	uint8_t c[256], r[256];
+	uint8_t names[2 + SHA256_DIGEST_LENGTH + 4];
+	static const uint8_t params[2 + 2 + 2 + 4];	/* all empty, all zero */
+	struct bb b = { c, 10, sizeof(c) };
+	struct session a;
+	size_t n, poff, plen, i;
+	bool ok;
+
+	if (authlen == 0 || authlen > sizeof(a.auth)) {
+		last_error = "PolicySecret auth length";
+		return (false);
+	}
+	if (!nv_name(index, names))
+		return (false);
+	names[34] = session >> 24; names[35] = session >> 16;	/* a session's name is its handle */
+	names[36] = session >> 8; names[37] = session;
+	if (!session_start(k, keyhandle, TPM_SE_HMAC, &a))
+		return (false);
+	memcpy(a.auth, auth, authlen);
+	a.authlen = authlen;
+	put32(&b, index);				/* authHandle: the entity */
+	put32(&b, session);				/* policySession */
+	ok = put_auth_session(&b, &a, 0, TPM_CC_PolicySecret, names, sizeof(names),
+	    params, sizeof(params));
+	if (ok) {
+		for (i = 0; i < sizeof(params); i++)
+			put8(&b, params[i]);
+		finish(&b, TPM_ST_SESSIONS, TPM_CC_PolicySecret);
+		ok = submit(&b, r, sizeof(r), &n) &&
+		    check_response(&a, TPM_CC_PolicySecret, r, n, &poff, &plen);
+	}
+	session_end(&a);
+	return (ok);
+}
+
 /*
  * Unseal under the session, the first response parameter encrypted by
  * the TPM with KDFa(sessionKey || authValue, "CFB", nonceTPM,
@@ -949,12 +1051,14 @@ out:
 
 bool
 tpm_unseal(uint32_t keyhandle, const uint8_t *key_digest, uint32_t handle,
-    uint32_t pcr_mask, const uint8_t *auth, size_t authlen,
+    const struct tpm_policy_step *steps, size_t nsteps,
+    const uint8_t *auth, size_t authlen,
     uint8_t *out, size_t cap, size_t *len)
 {
 	struct tpm_key k;
 	struct tpm_key obj;
 	struct session s;
+	size_t i;
 	bool ok;
 
 	if (!read_public(keyhandle, &k))
@@ -969,15 +1073,38 @@ tpm_unseal(uint32_t keyhandle, const uint8_t *key_digest, uint32_t handle,
 	}
 	if (!read_public(handle, &obj))	/* the sealed object's name, for the HMAC */
 		return (false);
-	if (!session_start(&k, keyhandle, &s))
+	if (!session_start(&k, keyhandle, TPM_SE_POLICY, &s))
 		return (false);
 	if (authlen > sizeof(s.auth))
 		authlen = sizeof(s.auth);
-	memcpy(s.auth, auth, authlen);
+	if (authlen > 0)
+		memcpy(s.auth, auth, authlen);
 	s.authlen = authlen;
-	ok = policy_pcr(s.handle, pcr_mask) &&
-	    (authlen == 0 || policy_authvalue(s.handle)) &&
-	    unseal(&s, handle, obj.name, obj.namelen, out, cap, len);
+	ok = true;
+	for (i = 0; ok && i < nsteps; i++) {
+		const struct tpm_policy_step *st = &steps[i];
+
+		switch (st->op) {
+		case TPM_POLICY_PCR:
+			ok = policy_pcr(s.handle, st->mask);
+			break;
+		case TPM_POLICY_AUTHVALUE:
+			ok = policy_authvalue(s.handle);
+			break;
+		case TPM_POLICY_SECRET:
+			ok = policy_secret(&k, keyhandle, s.handle, st->index,
+			    st->auth, st->authlen);
+			break;
+		case TPM_POLICY_NV:
+			ok = policy_nv(s.handle, st->index, st->operand,
+			    st->oplen, st->offset, st->eo);
+			break;
+		default:
+			last_error = "policy step";
+			ok = false;
+		}
+	}
+	ok = ok && unseal(&s, handle, obj.name, obj.namelen, out, cap, len);
 	session_end(&s);			/* the TPM closed it with Unseal; a failure leaves it */
 	return (ok);
 }
@@ -1029,7 +1156,7 @@ tpm_nv_policy_increment(uint32_t keyhandle, uint32_t index)
 	}
 	if (!nv_name(index, nvname))
 		return (false);
-	if (!session_start(&k, keyhandle, &s))
+	if (!session_start(&k, keyhandle, TPM_SE_POLICY, &s))
 		return (false);
 	memcpy(names, nvname, sizeof(nvname));			/* authHandle: the index */
 	memcpy(names + sizeof(nvname), nvname, sizeof(nvname));	/* nvIndex */
@@ -1099,7 +1226,7 @@ tpm_nv_policy_write(uint32_t keyhandle, uint32_t index, uint32_t pcr_mask,
 	}
 	if (!nv_name(index, nvname))
 		return (false);
-	if (!session_start(&k, keyhandle, &s))
+	if (!session_start(&k, keyhandle, TPM_SE_POLICY, &s))
 		return (false);
 	memcpy(names, nvname, sizeof(nvname));			/* authHandle: the index */
 	memcpy(names + sizeof(nvname), nvname, sizeof(nvname));	/* nvIndex */

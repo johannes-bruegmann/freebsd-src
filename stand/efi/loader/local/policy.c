@@ -107,19 +107,54 @@ action_run(const struct appraisal *a, const struct action *act)
 	act->execute(a);
 }
 
+/*
+ * The decoy boot (tpm_keyfile.h): once the duress object has answered,
+ * no policy fires any more -- not the bindings of the gate whose claim
+ * ran the dialog, none of the gates behind it. The owner's seal is dead
+ * in the TPM at that moment; what follows is only the decoy root coming
+ * up, and a prompt, a halt or a publication here would tell the coercer
+ * more than the decoy does.
+ */
 static void
 policy_run(enum phase ph, const struct policy *p, int argc, CHAR16 *argv[])
 {
 	struct appraisal a;
 	const struct binding *b;
 
+	if (evidence()->duress)
+		return;
 	a.gate = p->gate;
 	a.results = p->results;
 	a.verdict = gate_appraise(p->gate, argc, argv, p->results);
+	if (evidence()->duress)
+		return;
 	evidence_note_appraisal(ph, &a);
 	for (b = p->bindings; b->action != NULL; b++)
 		if (b->fires(&a))
 			action_run(&a, b->action);
+}
+
+/*
+ * The decoy root instead of the production one: vfs.root.mountfrom from
+ * loader.trust.tpm.decoy.root (e.g. zfs:zempty/ROOT/default); the kernel
+ * and modules stay the verified ones from the medium. The production
+ * providers carry the BOOT flag and their key file is not there: the
+ * kernel would stop at "Enter passphrase for nda0p1:" -- boot_prompt=0
+ * (sys/geom/eli) leaves them detached instead. No leaf: a halt, loud,
+ * the only misconfiguration this path can have.
+ */
+static void
+decoy_divert(void)
+{
+	const char *root = getenv("loader.trust.tpm.decoy.root");
+	char note[128];
+
+	if (root == NULL)
+		halt_boot("no decoy root (loader.trust.tpm.decoy.root)");
+	strlcpy(note, root, sizeof(note));	/* a getenv() pointer dies with setenv() */
+	setenv("vfs.root.mountfrom", note, 1);
+	unsetenv("vfs.root.mountfrom.options");
+	setenv("kern.geom.eli.boot_prompt", "0", 1);
 }
 
 static uint8_t
@@ -191,6 +226,10 @@ local_run(enum phase ph, int argc, CHAR16 *argv[])
 		policy_run(post, p, argc, argv);
 	if (ph == PHASE_KERNEL) {
 		geli_open_ensure();
+		if (evidence()->duress) {
+			decoy_divert();
+			return;
+		}
 		(void)record_commit(record_flags());
 	}
 }

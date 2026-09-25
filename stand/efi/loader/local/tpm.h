@@ -14,11 +14,12 @@
  * millisecond clock), the SHA256 bank of PCR 0..7 (the firmware's own
  * measured boot), and elvboot's NV counter index, which the loader
  * increments once per boot (NV_Increment cannot be undone). One thing
- * is unsealed (tpm_unseal): a persistent sealed object
- * under a PCR policy -- the GELI key file of tpm_keyfile.c. The policy
- * session is the TPM's own (PolicyPCR against its current PCRs); the
- * loader never sees a policy digest or an auth value, the object carries
- * no auth value by design, so an empty HMAC authorizes.
+ * is unsealed (tpm_unseal): a persistent sealed object under a policy
+ * -- the GELI key file of tpm_keyfile.c. The policy is replayed step by
+ * step into a salted session (struct tpm_policy_step: PCR, the object's
+ * auth value, a PolicySecret against an NV index, a PolicyNV over an
+ * index's bytes); the TPM alone decides whether the digest comes out,
+ * the loader never sees a policy digest.
  *
  * Assumes: a TPM 2.0 is enabled in Setup and the firmware publishes the
  * TCG2 protocol. Absent TPM -> every call reports failure and the
@@ -55,15 +56,55 @@ bool	tpm_pcr_bank(uint32_t mask, uint8_t out[static SHA256_DIGEST_LENGTH]);	/* s
 bool	tpm_nv_counter_read(uint64_t *);
 bool	tpm_nv_counter_increment(void);
 bool	tpm_nv_define_counter(void);
-/* Unseal <handle> under a policy session bound to the PCRs of <pcr_mask>
- * (bit i = PCR i, SHA256 bank); the bytes go to out (at most cap). */
+/* NV_Read of 8 bytes with owner auth (empty): a PIN index reads
+ * pinCount || pinLimit (its own authValue may not read it), a counter its
+ * value; the index needs OWNERREAD. */
+bool	tpm_nv_owner_read(uint32_t index, uint64_t *out);
 /* The storage key the sessions are salted to: its name's digest (baseline). */
 bool	tpm_key_digest(uint32_t keyhandle, uint8_t out[static SHA256_DIGEST_LENGTH]);
-/* Unseal under a salted, encrypting policy session (PCR policy; with an
- * auth value also PolicyAuthValue). key_digest, when given, must be the
- * storage key's; a refusal or a wrong HMAC is reported by tpm_last_error. */
+
+/*
+ * A policy is replayed step by step into the session, in the order the
+ * object was sealed to (elebake `stage tpm seal` defines it; the digest
+ * depends on the order). PCR: PolicyPCR over mask. AUTHVALUE: the object's
+ * own auth (tpm_unseal's auth) joins the session HMAC. SECRET:
+ * PolicySecret against an NV index whose authValue is auth -- proven by a
+ * second salted HMAC session, the value never crosses the bus; a PIN_PASS
+ * index counts it. NV: PolicyNV, operand <eo> the index's oplen bytes at
+ * offset, the owner reading (empty auth). The NV operand is part of the
+ * policy digest: it must be the value the object was sealed against.
+ */
+enum tpm_policy_op {
+	TPM_POLICY_PCR = 1,
+	TPM_POLICY_AUTHVALUE,
+	TPM_POLICY_SECRET,
+	TPM_POLICY_NV,
+};
+
+#define	TPM_EO_EQ		0x0000
+#define	TPM_EO_NEQ		0x0001
+#define	TPM_EO_UNSIGNED_GT	0x0003
+#define	TPM_EO_UNSIGNED_LT	0x0005
+
+struct tpm_policy_step {
+	enum tpm_policy_op op;
+	uint32_t	 mask;		/* PCR: bit i = PCR i, SHA256 bank */
+	uint32_t	 index;		/* SECRET, NV: the NV index */
+	const uint8_t	*auth;		/* SECRET: the index's authValue */
+	size_t		 authlen;
+	uint8_t		 operand[8];	/* NV: operandB, big-endian as stored */
+	uint16_t	 oplen;		/* NV: 4 for pinCount, 8 for a counter */
+	uint16_t	 offset;
+	uint16_t	 eo;		/* NV: TPM_EO_* */
+};
+
+/* Unseal <handle> under a salted, encrypting policy session that replays
+ * <steps>; auth is the object's own authValue (AUTHVALUE step), else NULL.
+ * key_digest, when given, must be the storage key's; a refusal or a wrong
+ * HMAC is reported by tpm_last_error. */
 bool	tpm_unseal(uint32_t keyhandle, const uint8_t *key_digest, uint32_t handle,
-	    uint32_t pcr_mask, const uint8_t *auth, size_t authlen,
+	    const struct tpm_policy_step *steps, size_t nsteps,
+	    const uint8_t *auth, size_t authlen,
 	    uint8_t *out, size_t cap, size_t *len);
 /* NV counters of the local layer: increment under a policy session
  * (PolicyCommandCode), read with the index's own empty auth. */
