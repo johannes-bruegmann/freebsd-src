@@ -135,19 +135,16 @@ parse_sealed(const char *s, uint8_t out[8], uint64_t *v)
 	return (true);
 }
 
-/* The two indices as they stand, for the diagnosis: read with owner auth
- * before any attempt, so a boot after a duress event still explains itself. */
+/* The counter as it stands, for the diagnosis: read through the index
+ * itself before any attempt, so a boot after a duress event still explains
+ * itself. The PIN index reads only under the owner hierarchy, whose
+ * password the boot path does not hold: elebake stage tpm status shows it. */
 static void
-read_indices(uint32_t pin, uint32_t count)
+read_indices(uint32_t count)
 {
 	uint64_t v;
 
-	if (tpm_nv_owner_read(pin, &v)) {
-		st.pin_read = true;
-		st.pin_count = (uint32_t)(v >> 32);
-		st.pin_limit = (uint32_t)v;
-	}
-	if (tpm_nv_owner_read(count, &v)) {
+	if (tpm_nv_index_read(count, &v)) {
 		st.count_read = true;
 		st.count = v;
 	}
@@ -264,7 +261,7 @@ tpm_keyfile_prepare(const char *passphrase)
 		st.reason = "bad pcrs";
 		return;
 	}
-	read_indices(pinindex, cntindex);
+	read_indices(cntindex);
 	if (tpm_key_digest(keyhandle, kd))
 		hex_publish("loader.trust.tpm.key.sha256", kd, sizeof(kd));
 	if (key_digest_baseline(kd)) {
@@ -277,12 +274,12 @@ tpm_keyfile_prepare(const char *passphrase)
 	SHA256_Update(&ctx, passphrase, strlen(passphrase));
 	SHA256_Final(auth, &ctx);
 	{
-		/* owner: PCR, the object's auth value, both indices untouched */
+		/* owner: PCR, the object's auth value, the counter untouched
+		 * (the PIN index is not in the policy: it reads only under
+		 * the owner hierarchy, and a counter says the same, finally) */
 		const struct tpm_policy_step owner[] = {
 			{ .op = TPM_POLICY_PCR, .mask = mask },
 			{ .op = TPM_POLICY_AUTHVALUE },
-			{ .op = TPM_POLICY_NV, .index = pinindex, .oplen = 4,
-			  .offset = 0, .eo = TPM_EO_EQ, .operand = { 0, 0, 0, 0 } },
 			{ .op = TPM_POLICY_NV, .index = cntindex, .oplen = 8,
 			  .offset = 0, .eo = TPM_EO_EQ, .operand = { sealed8[0],
 			  sealed8[1], sealed8[2], sealed8[3], sealed8[4],

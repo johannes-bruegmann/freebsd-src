@@ -796,10 +796,9 @@ diagnose_tpm_keyfile(int argc __unused, CHAR16 *argv[] __unused,
 
 	d->leaf = "tpm.keyfile";
 	snprintf(d->text, sizeof(d->text), "unsealed=%u,providers=%u,added=%u,key=%s,"
-	    "duress.pin=%s%u/%u,duress.count=%s%llx/%llx,%s",
+	    "duress.count=%s%llx/%llx,%s",
 	    s->unsealed ? 1 : 0, s->providers, s->added,
 	    s->verified ? "verified" : "unverified",
-	    s->pin_read ? "" : "unread:", s->pin_count, s->pin_limit,
 	    s->count_read ? "" : "unread:", (unsigned long long)s->count,
 	    (unsigned long long)s->count_sealed,
 	    s->reason != NULL ? s->reason : "not asked");

@@ -240,8 +240,9 @@ halt_count_once() {
 # coercion, BEFORE the stop that follows them -- the increment has to be
 # in the TPM before the machine goes down. The index authorizes by
 # PolicyCommandCode(NV_Increment) like halt.nv (halt_count_once does the
-# increment); the value is read back under the owner hierarchy (ownerread,
-# no owner password) and the spool line says whether it lies above the
+# increment); the value is read back through the index itself (authread,
+# empty index auth -- the owner hierarchy's password is not on the
+# machine) and the spool line says whether it lies above the
 # sealed one -- the tools' exit status alone is not the witness. Without
 # the leafs nothing happens (an unprovisioned tree has no seal to close).
 duress_count_act() {
@@ -272,7 +273,7 @@ duress_count_act() {
 # the form loader.trust.tpm.duress.count.sealed carries; empty when the
 # index cannot be read
 duress_count_read() {
-	$TPM2_NVREAD -C o -s 8 "$1" 2>/dev/null | $OD -An -tx1 | $TR -d ' \n'
+	$TPM2_NVREAD -C "$1" -s 8 "$1" 2>/dev/null | $OD -An -tx1 | $TR -d ' \n'
 }
 
 # warn_shutdown_act <gate> -- the owner's login warning after an unclean

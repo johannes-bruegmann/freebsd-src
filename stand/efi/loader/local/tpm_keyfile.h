@@ -25,7 +25,6 @@
  * fates (the order of the steps is the order elebake sealed them in):
  *
  *   owner (handle):  PolicyPCR, PolicyAuthValue(owner passphrase),
- *                    PolicyNV(duress.nv: pinCount == 0),
  *                    PolicyNV(duress.count.nv: value == duress.count.sealed)
  *                    -> the production root's key file (keyfile.providers)
  *   duress (duress): PolicySecret(duress.nv, duress passphrase), PolicyPCR
@@ -33,15 +32,18 @@
  *
  * duress.nv is a TPM_NT_PIN_PASS index (pinLimit 1) whose authValue is
  * the duress passphrase: the TPM itself counts the one successful
- * PolicySecret, and from then on the owner's PolicyNV(pinCount == 0)
- * fails -- the owner object is dead, in the TPM, without a script. The
- * second index, duress.count.nv, is an ordinary counter: earlboot raises
- * it for a boot answer of the coercion class, the loader raises it after
- * a duress opening; the owner object is sealed against its value at seal
- * time (a counter never reads 0 and never goes back). The counter is
- * what makes the death final: pinCount is an owner-writable cell, and
- * the owner hierarchy's password is empty. The way back after either is
- * the disk's recovery slot, then elebake's reset and reseal.
+ * PolicySecret, and the duress object is spent. The second index,
+ * duress.count.nv, is an ordinary counter: earlboot raises it for a boot
+ * answer of the coercion class, the loader raises it after a duress
+ * opening; the owner object is sealed against its value at seal time (a
+ * counter never reads 0 and never goes back), so either raise kills it --
+ * in the TPM, without a script, and finally: pinCount would be an
+ * owner-writable cell, a counter is not. Nothing on the boot path uses
+ * the owner hierarchy: PolicyNV and the reads authorize through the index
+ * itself (AUTHREAD, empty index auth), so the owner and lockout
+ * hierarchies carry a password the machine never holds (elebake stage tpm
+ * hierarchy). The way back after either is the disk's recovery slot, then
+ * elebake's reset and reseal.
  *
  * The duress opening is the decoy boot: the loader marks the evidence
  * ledger (evidence_set_duress), raises counter.nv (the trace, an
@@ -84,9 +86,6 @@ struct tpm_keyfile_state {
 	unsigned int	 providers;	/* providers configured (of the root that opened) */
 	unsigned int	 added;		/* ... that got the key file */
 	const char	*reason;	/* what happened, for the diagnosis */
-	bool		 pin_read;	/* duress.nv answered the owner's read */
-	uint32_t	 pin_count;	/* its pinCount */
-	uint32_t	 pin_limit;	/* its pinLimit */
 	bool		 count_read;	/* duress.count.nv answered */
 	uint64_t	 count;		/* its value now */
 	uint64_t	 count_sealed;	/* the leaf: its value at seal time */

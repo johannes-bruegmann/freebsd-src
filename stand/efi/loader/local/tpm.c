@@ -327,35 +327,11 @@ tpm_pcr_bank(uint32_t mask, uint8_t out[static SHA256_DIGEST_LENGTH])
 	return (true);
 }
 
-/* NV_Read of 8 bytes of an index; the owner (empty password) authorizes. */
-bool
-tpm_nv_owner_read(uint32_t index, uint64_t *out)
-{
-	uint8_t c[64], r[64];
-	struct bb b = { c, 10, sizeof(c) };
-	size_t n;
-	uint32_t psize;
-
-	put32(&b, TPM_RH_OWNER);		/* authHandle */
-	put32(&b, index);			/* nvIndex */
-	put_auth_pw(&b);
-	put16(&b, 8);				/* size */
-	put16(&b, 0);				/* offset */
-	finish(&b, TPM_ST_SESSIONS, TPM_CC_NV_Read);
-	if (!submit(&b, r, sizeof(r), &n) || n < 10 + 4 + 2 + 8)
-		return (false);
-	psize = get32(r + 10);
-	if (psize < 10 || get16(r + 14) != 8)
-		return (false);
-	*out = get64(r + 16);
-	return (true);
-}
-
 /* Our per-boot counter index. */
 bool
 tpm_nv_counter_read(uint64_t *out)
 {
-	return (tpm_nv_owner_read(LOADER_TRUST_TPM_NV_INDEX, out));
+	return (tpm_nv_index_read(LOADER_TRUST_TPM_NV_INDEX, out));
 }
 
 bool
@@ -365,14 +341,18 @@ tpm_nv_counter_increment(void)
 	struct bb b = { c, 10, sizeof(c) };
 	size_t n;
 
-	put32(&b, TPM_RH_OWNER);
+	put32(&b, LOADER_TRUST_TPM_NV_INDEX);	/* authHandle: the index (AUTHWRITE, empty auth) */
 	put32(&b, LOADER_TRUST_TPM_NV_INDEX);
 	put_auth_pw(&b);
 	finish(&b, TPM_ST_SESSIONS, TPM_CC_NV_Increment);
 	return (submit(&b, r, sizeof(r), &n));
 }
 
-/* Define the counter index (once): owner-writable, owner-readable, no DA. */
+/* Define the counter index (once): owner- and auth-writable, owner- and
+ * auth-readable, no DA. The one command here that needs the owner
+ * hierarchy: it runs before the hierarchy's password is set (elebake
+ * stage tpm hierarchy); everything the boot path does afterwards
+ * authorizes through the index itself. */
 bool
 tpm_nv_define_counter(void)
 {
@@ -831,8 +811,9 @@ static bool policy_secret(const struct tpm_key *, uint32_t, uint32_t, uint32_t,
 /*
  * PolicyNV: the session's policy comes to require that the index's oplen
  * bytes at offset stand in relation <eo> to operand (part 3, 23.20); the
- * owner authorizes the read (empty password, as tpm_nv_owner_read: the
- * index needs OWNERREAD). The operand is hashed into the policy digest:
+ * index itself authorizes the read (AUTHREAD with an empty index auth --
+ * the owner hierarchy carries a password the boot path never holds). The
+ * operand is hashed into the policy digest:
  * it is the value sealed against. pinCount is a PIN index's first 4 bytes.
  */
 static bool
@@ -847,7 +828,7 @@ policy_nv(uint32_t session, uint32_t index, const uint8_t *operand,
 		last_error = "PolicyNV operand";
 		return (false);
 	}
-	put32(&b, TPM_RH_OWNER);			/* authHandle: the owner reads */
+	put32(&b, index);				/* authHandle: the index itself */
 	put32(&b, index);				/* nvIndex */
 	put32(&b, session);				/* policySession */
 	put_auth_pw(&b);

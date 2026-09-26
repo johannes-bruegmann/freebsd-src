@@ -56,10 +56,6 @@ bool	tpm_pcr_bank(uint32_t mask, uint8_t out[static SHA256_DIGEST_LENGTH]);	/* s
 bool	tpm_nv_counter_read(uint64_t *);
 bool	tpm_nv_counter_increment(void);
 bool	tpm_nv_define_counter(void);
-/* NV_Read of 8 bytes with owner auth (empty): a PIN index reads
- * pinCount || pinLimit (its own authValue may not read it), a counter its
- * value; the index needs OWNERREAD. */
-bool	tpm_nv_owner_read(uint32_t index, uint64_t *out);
 /* The storage key the sessions are salted to: its name's digest (baseline). */
 bool	tpm_key_digest(uint32_t keyhandle, uint8_t out[static SHA256_DIGEST_LENGTH]);
 
