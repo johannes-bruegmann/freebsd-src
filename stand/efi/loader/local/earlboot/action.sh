@@ -231,6 +231,50 @@ halt_count_once() {
 	$RM -f "$2"
 }
 
+# duress_count_act <gate> -- raise the second counter
+# loader.trust.tpm.duress.count.nv. The owner's sealed object opens only
+# while the counter still reads loader.trust.tpm.duress.count.sealed
+# (PolicyNV, checked by the TPM), so one increment closes slot 0 of the
+# production providers for good: no script and no root lowers a counter,
+# the way back is the paper slot. Bound to the answer classes that mean
+# coercion, BEFORE the stop that follows them -- the increment has to be
+# in the TPM before the machine goes down. The index authorizes by
+# PolicyCommandCode(NV_Increment) like halt.nv (halt_count_once does the
+# increment); the value is read back under the owner hierarchy (ownerread,
+# no owner password) and the spool line says whether it lies above the
+# sealed one -- the tools' exit status alone is not the witness. Without
+# the leafs nothing happens (an unprovisioned tree has no seal to close).
+duress_count_act() {
+	local nv sealed s i err now
+	nv=$($KENV -q loader.trust.tpm.duress.count.nv 2>/dev/null) || return 0
+	sealed=$($KENV -q loader.trust.tpm.duress.count.sealed 2>/dev/null) || return 0
+	[ -n "$nv" ] && [ -n "$sealed" ] || return 0
+	s="$ELV_STATE/duress-count.session"
+	TPM2TOOLS_TCTI=device:/dev/tpm0; export TPM2TOOLS_TCTI
+	i=1
+	while [ "$i" -le 5 ]; do
+		if err=$(halt_count_once "$nv" "$s" 2>&1); then
+			now=$(duress_count_read "$nv")
+			if [ -n "$now" ] && [ "$((0x$now))" -gt "$((0x$sealed))" ]; then
+				duress_count_note "pass attempt=$i count=$now sealed=$sealed"
+			else
+				duress_count_note "unconfirmed attempt=$i count=${now:-unreadable} sealed=$sealed"
+			fi
+			return 0
+		fi
+		$SLEEP 1
+		i=$((i + 1))
+	done
+	duress_count_note "fail attempts=5 error=$(printf '%s' "$err" | $TR '\n' ' ' | $HEAD -c 300)"
+}
+
+# duress_count_read <index> -- the counter's 8 bytes as 16 hex characters,
+# the form loader.trust.tpm.duress.count.sealed carries; empty when the
+# index cannot be read
+duress_count_read() {
+	$TPM2_NVREAD -C o -s 8 "$1" 2>/dev/null | $OD -An -tx1 | $TR -d ' \n'
+}
+
 # warn_shutdown_act <gate> -- the owner's login warning after an unclean
 # shutdown: one plain line per finding into pending-console,
 # which elvbootd's notice_act puts into /var/run/motd -- "unsafe power
@@ -275,6 +319,11 @@ spool_note() {
 # halt_count_note <text> -- the outcome into the append-only spool
 halt_count_note() {
 	spool_note halt-count "$1"
+}
+
+# duress_count_note <text> -- the outcome into the append-only spool
+duress_count_note() {
+	spool_note duress-count "$1"
 }
 
 # unlock_note_act <gate> -- the owner overrode a fallen gate with the unlock

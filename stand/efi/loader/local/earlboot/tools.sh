@@ -67,6 +67,7 @@ SYSCTL=/sbin/sysctl # test:sysctl
 TPM2_PCRREAD=/usr/local/bin/tpm2_pcrread # test:silent
 TPM2_FLUSHCONTEXT=/usr/local/bin/tpm2_flushcontext # test:silent
 TPM2_NVINCREMENT=/usr/local/bin/tpm2_nvincrement # test:note
+TPM2_NVREAD=/usr/local/bin/tpm2_nvread # test:silent
 TPM2_POLICYCOMMANDCODE=/usr/local/bin/tpm2_policycommandcode # test:silent
 TPM2_STARTAUTHSESSION=/usr/local/bin/tpm2_startauthsession # test:silent
 TPM2_POLICYPCR=/usr/local/bin/tpm2_policypcr # test:silent
