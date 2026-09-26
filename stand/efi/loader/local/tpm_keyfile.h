@@ -35,15 +35,18 @@
  * the duress passphrase: the TPM itself counts the one successful
  * PolicySecret, and from then on the owner's PolicyNV(pinCount == 0)
  * fails -- the owner object is dead, in the TPM, without a script. The
- * second index, duress.count.nv, is an ordinary counter earlboot raises
- * for a boot answer of the coercion class; the owner object is sealed
- * against its value at seal time (a counter never reads 0 and never goes
- * back). The way back after either is the disk's recovery slot, then
- * elebake's reset and reseal.
+ * second index, duress.count.nv, is an ordinary counter: earlboot raises
+ * it for a boot answer of the coercion class, the loader raises it after
+ * a duress opening; the owner object is sealed against its value at seal
+ * time (a counter never reads 0 and never goes back). The counter is
+ * what makes the death final: pinCount is an owner-writable cell, and
+ * the owner hierarchy's password is empty. The way back after either is
+ * the disk's recovery slot, then elebake's reset and reseal.
  *
  * The duress opening is the decoy boot: the loader marks the evidence
  * ledger (evidence_set_duress), raises counter.nv (the trace, an
- * increment-only index), places the DECOY key file, and policy.c takes
+ * increment-only index) and duress.count.nv (the seal's death), places
+ * the DECOY key file, and policy.c takes
  * the short way out -- no record, no further gate, the root becomes
  * loader.trust.tpm.decoy.root. Nothing on the console differs until the
  * decoy system is up; by then the seal is dead, which was the point.

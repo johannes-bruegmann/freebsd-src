@@ -318,6 +318,15 @@ tpm_keyfile_prepare(const char *passphrase)
 		evidence_set_duress();
 		if (nvindex != 0)
 			(void)tpm_nv_policy_increment(keyhandle, nvindex);
+		/*
+		 * The second counter too: the owner's object is sealed
+		 * against its value, and a counter never goes back. The PIN
+		 * index alone would leave the seal's death reversible --
+		 * pinCount is an owner-writable cell, and the owner
+		 * hierarchy's password is empty (a root anywhere on this
+		 * machine writes it back to 0).
+		 */
+		(void)tpm_nv_policy_increment(keyhandle, cntindex);
 		place(dp != NULL ? dp : "", secret, len);
 	} else
 		place(p, secret, len);
