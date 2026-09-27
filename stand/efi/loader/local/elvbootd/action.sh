@@ -124,7 +124,7 @@ smart_anchor_act() {
 	printf "$body" | $OPENSSL dgst -sha256 -binary >> "$f"
 	TPM2TOOLS_TCTI=device:/dev/tpm0; export TPM2TOOLS_TCTI
 	if $TPM2_STARTAUTHSESSION --policy-session --session="$s" 2>/dev/null &&
-	    $TPM2_POLICYPCR --session="$s" --pcr-list="sha256:$cap" 2>/dev/null &&
+	    $TPM2_POLICYPCR --session="$s" --pcr-list="sha256:$cap" >/dev/null 2>&1 &&
 	    $TPM2_NVWRITE "$idx" --auth="session:$s" --input="$f" 2>/dev/null; then
 		$TPM2_FLUSHCONTEXT "$s" 2>/dev/null
 		$TPM2_PCREXTEND "$cap:sha256=e77d35bc1f1b86c4267bfba0d4b874afad6ebc964b8367b05b817ee557a70e8f" 2>/dev/null
