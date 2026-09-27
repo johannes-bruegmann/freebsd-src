@@ -107,15 +107,20 @@ diagnose_rtc_gap() { [ -f "$ELV_STATE/heartbeat" ] && printf 'heartbeat=%s now=%
 # measure_efivar_unique <guid8/name> -- 1 iff the digest this boot's loader
 # published for the variable (kenv loader.trust.list.efivars.*, the
 # <id>:<attrs>:<size>:<digest> entries) appears in NO earlier inventory
-# record ($ELV_STATE/inventory/*, one file per boot). A variable that
+# record ($ELV_STATE/inventory/*, one file per boot, named by the boot
+# time the loader published -- inventory_record_act). This boot's own
+# record is left out by that NAME, never by sort order: a boot with the
+# clock set forward (a storage probe) leaves a record that sorts last for
+# weeks, and every boot after it would find itself. A variable that
 # moves every boot must never repeat: a repeat is a dump written back
 # blindly. Absent without the entry or without earlier records.
 measure_efivar_unique() {
-	local cur f
+	local cur own f
 	cur=$($KENV | $SED -n 's/^loader\.trust\.list\.efivars\.[0-9]*="\(.*\)"$/\1/p' | $TR ',' '\n' | $GREP "^$1:" | $HEAD -n1 | $AWK -F: '{print $NF}')
 	[ -n "$cur" ] || return 0
 	[ -d "$ELV_STATE/inventory" ] || return 0
-	f=$(ls "$ELV_STATE/inventory" 2>/dev/null | $SORT | $SED '$d')
+	own=$($KENV -q loader.trust.kernellock.time.now 2>/dev/null | $SED 's/,.*//; s/[-:]//g')
+	f=$(ls "$ELV_STATE/inventory" 2>/dev/null | $GREP -v "^${own:-NONE}\$")
 	[ -n "$f" ] || return 0
 	for f in $f; do
 		if $TR ',' '\n' < "$ELV_STATE/inventory/$f" | $GREP -q "^\(loader\.trust\.list\.efivars\.[0-9]*=\"\)\{0,1\}$1:.*:$cur\$"; then
@@ -124,12 +129,13 @@ measure_efivar_unique() {
 	done
 	printf '1\n'
 }
-# diagnose_efivar_unique <guid8/name> -- this boot's digest and the number of earlier records
+# diagnose_efivar_unique <guid8/name> -- this boot's digest, its record's name and the number of earlier records
 diagnose_efivar_unique() {
-	local cur n
+	local cur own n
 	cur=$($KENV | $SED -n 's/^loader\.trust\.list\.efivars\.[0-9]*="\(.*\)"$/\1/p' | $TR ',' '\n' | $GREP "^$1:" | $HEAD -n1 | $AWK -F: '{print $NF}')
-	n=$(ls "$ELV_STATE/inventory" 2>/dev/null | $WC -l | $TR -d ' ')
-	printf 'digest=%s,records=%s\n' "${cur:-none}" "$((n > 0 ? n - 1 : 0))"
+	own=$($KENV -q loader.trust.kernellock.time.now 2>/dev/null | $SED 's/,.*//; s/[-:]//g')
+	n=$(ls "$ELV_STATE/inventory" 2>/dev/null | $GREP -vc "^${own:-NONE}\$" | $TR -d ' ')
+	printf 'digest=%s,own=%s,records=%s\n' "${cur:-none}" "${own:-none}" "$n"
 }
 
 # measure_ntp_gap <max-seconds> -- 1 iff the RTC the boot ran on agrees
