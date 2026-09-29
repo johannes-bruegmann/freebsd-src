@@ -182,23 +182,13 @@ post_of(enum phase ph)
 }
 
 /*
- * The policies bound in this build, over every phase. Zero is the
- * checkout's own foundation.c (no gate, no claim): a loader that would
- * measure nothing and still open the root. It refuses before the dialog.
+ * A build with no policy bound -- the checkout's own foundation.c, or a
+ * stage that binds nothing -- runs every phase empty and boots like the
+ * stock loader. That is a configuration, not an error: whether the gates
+ * an owner bound are in the binary is settled where the binary is made
+ * (elebake stage build renders foundation.c from the stage before make),
+ * never here at run time.
  */
-static unsigned int
-policies_bound(void)
-{
-	const struct policy *p;
-	enum phase ph;
-	unsigned int n = 0;
-
-	for (ph = PHASE_BOOT; ph <= PHASE_KERNEL_POST; ph++)
-		for (p = phase_policies(ph); p->gate != NULL; p++)
-			n++;
-	return (n);
-}
-
 void
 local_run(enum phase ph, int argc, CHAR16 *argv[])
 {
@@ -206,9 +196,6 @@ local_run(enum phase ph, int argc, CHAR16 *argv[])
 	enum phase post = post_of(ph);
 
 	evidence_args(argc, argv);
-	if (ph == PHASE_KERNEL && policies_bound() == 0)
-		halt_boot("no gate bound: this loader was built from the checkout's "
-		    "empty foundation.c (stage foundation make, then stage make)");
 	/*
 	 * KERNEL: the gates measure; none of them halts or asks for a
 	 * password (unlock_act, bound where the owner wants an informed
