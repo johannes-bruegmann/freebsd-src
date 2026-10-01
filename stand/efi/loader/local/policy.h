@@ -121,6 +121,7 @@ bool	when_maybe(const struct appraisal *);
 bool	when_tainted(const struct appraisal *);
 bool	when_prompted(const struct appraisal *);
 bool	when_duress(const struct appraisal *);
+bool	when_rescue(const struct appraisal *);
 
 /*
  * The bindings of a policy are one POLICY_TABLE_DEFINE(name, binding1, ...):

@@ -51,6 +51,7 @@ struct evidence {
 	bool			 duress;	/* the TPM opened the duress object */
 	bool			 taint;		/* taint_act fired (a policy decision) */
 	bool			 unlocked;	/* unlock_act took the passphrase (the owner's override) */
+	bool			 rescue;	/* offer_act: the owner chose the rescue root (acknowledged) */
 	bool			 silence;	/* silence_act: no publish */
 	int			 argc;		/* the LoadOptions, kept from BOOT */
 	CHAR16			**argv;
@@ -67,6 +68,7 @@ void	evidence_note_prompt(uint64_t dwell_ms, uint64_t cadence_ms);
 void	evidence_set_duress(void);
 void	evidence_set_taint(void);
 void	evidence_set_unlocked(void);
+void	evidence_set_rescue(void);
 void	evidence_set_silence(void);
 
 /* sha256 over the ledger's canonical rendering (the handover word's input) */

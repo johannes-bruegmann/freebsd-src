@@ -103,6 +103,7 @@ struct anchor_state {
 #define	RECORD_F_DURESS		0x02
 #define	RECORD_F_PROMPTED	0x04
 #define	RECORD_F_UNLOCKED	0x08	/* unlock_act took the passphrase: the owner overrode a gate */
+#define	RECORD_F_RESCUE		0x10	/* offer_act: the owner chose the rescue root, the TPM was not asked */
 
 /* The sealed form as stored: nonce || ciphertext(body) || mac */
 #define	RECORD_NONCE_LEN	16

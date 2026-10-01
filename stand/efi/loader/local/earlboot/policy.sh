@@ -40,13 +40,13 @@ PHASES="SYSINIT MOUNTED"
 # Runs once from the prologue; the results are globals the whens read.
 elv_word_check() {
 	local word ledger counter key try msg f
-	ELV_WORD_OK=0; ELV_TAINT=0; ELV_DURESS=0; ELV_PROMPTED=0; ELV_UNLOCKED=0
+	ELV_WORD_OK=0; ELV_TAINT=0; ELV_DURESS=0; ELV_PROMPTED=0; ELV_UNLOCKED=0; ELV_RESCUE=0
 	word=$($KENV -q "loader.trust.$ELV_GATE_LOADER.word" 2>/dev/null) || return 0
 	ledger=$($KENV -q "loader.trust.$ELV_GATE_LOADER.ledger" 2>/dev/null) || return 0
 	counter=$($KENV -q "loader.trust.$ELV_GATE_LOADER.counter" 2>/dev/null) || return 0
 	[ -n "$word" ] && [ -n "$ledger" ] && [ -n "$counter" ] || return 0
 	key=$(printf '%s' handover | $OPENSSL dgst -sha256 -mac HMAC -macopt "key:$ELV_WORD_SECRET" -r 2>/dev/null | $CUT -c1-64)
-	for f in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+	for f in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31; do
 		msg="$ledger|$counter|$f"
 		try=$(printf '%s' "$msg" | $OPENSSL dgst -sha256 -mac HMAC -macopt "hexkey:$key" -r 2>/dev/null | $CUT -c1-64)
 		if [ "$try" = "$word" ]; then
@@ -55,6 +55,7 @@ elv_word_check() {
 			[ $((f & 2)) -ne 0 ] && ELV_DURESS=1
 			[ $((f & 4)) -ne 0 ] && ELV_PROMPTED=1
 			[ $((f & 8)) -ne 0 ] && ELV_UNLOCKED=1
+			[ $((f & 16)) -ne 0 ] && ELV_RESCUE=1
 			return 0
 		fi
 	done
@@ -100,3 +101,5 @@ when_duress()   { [ "$ELV_DURESS" = 1 ]; }
 when_prompted() { [ "$ELV_PROMPTED" = 1 ]; }
 # when_unlocked -- the owner took a gate's unlock (the word's unlocked bit)
 when_unlocked() { [ "$ELV_UNLOCKED" = 1 ]; }
+# when_rescue -- offer_act fired and the owner acknowledged: this is the rescue root booting
+when_rescue()   { [ "$ELV_RESCUE" = 1 ]; }

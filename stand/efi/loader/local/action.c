@@ -493,18 +493,22 @@ action_confirm(const struct appraisal *a)
  * worth a decision: the chain on the medium after a boot from the
  * reserve card, a moved inventory set.
  */
-static void
-action_unlock(const struct appraisal *a)
+/*
+ * The owner's acknowledgement, the one dialog both unlock_act and
+ * offer_act hold: three tries at the passphrase whose hash the loader
+ * carries (LOADER_TRUST_UNLOCK_SECRET), then the boot halts. true when
+ * the owner answered; false only when no hash is compiled in -- the
+ * caller decides what an unprovisioned build does with that.
+ */
+static bool
+unlock_owner(const struct appraisal *a)
 {
-	char failed[LISTLEN], got[128], hash[2 * SHA256_DIGEST_LENGTH + 1];
+#ifndef LOADER_TRUST_UNLOCK_SECRET
+	return (false);
+#else
+	char got[128], hash[2 * SHA256_DIGEST_LENGTH + 1];
 	int tries;
 
-	list_by_verdict(a, VERDICT_FAIL, failed, sizeof(failed));
-	printf("\n*** %s: verification failed [%s] ***\n", a->gate->name, failed);
-#ifndef LOADER_TRUST_UNLOCK_SECRET
-	printf("no unlock secret compiled in -- continuing.\n");
-	return;
-#else
 	for (tries = 0; tries < 3; tries++) {
 		printf("%s: unlock passphrase: ", a->gate->name);
 		readsecret(got, sizeof(got));
@@ -513,12 +517,77 @@ action_unlock(const struct appraisal *a)
 		explicit_bzero(got, sizeof(got));
 		if (strcmp(hash, LOADER_TRUST_UNLOCK_SECRET) == 0) {
 			evidence_set_unlocked();	/* the word tells earlboot */
-			return;
+			return (true);
 		}
 		printf("wrong.\n");
 	}
 	halt_boot("locked");
+	return (false);	/* not reached */
 #endif
+}
+
+static void
+action_unlock(const struct appraisal *a)
+{
+	char failed[LISTLEN];
+
+	list_by_verdict(a, VERDICT_FAIL, failed, sizeof(failed));
+	printf("\n*** %s: verification failed [%s] ***\n", a->gate->name, failed);
+	if (!unlock_owner(a))
+		printf("no unlock secret compiled in -- continuing.\n");
+}
+
+#define	OFFER_WAIT_S	3
+
+/*
+ * The deliberate way into the rescue root, at the owner's hand and before
+ * GELI: one question with a timeout -- Enter, any other key or the timeout
+ * keep the silent boot silent, an unattended cold start never stops here --
+ * then the owner's acknowledgement (unlock_owner: leaving the silent boot
+ * is acknowledged like every other deviation, the passphrase proves the
+ * owner of the machine, not the holder of the card), then the divert:
+ * vfs.root.mountfrom from loader.trust.<gate>.rescue (the same leaf
+ * divert_act reads; a fixed target, no free text, so the measured kernel
+ * boots nothing but the rescue root), the TPM not asked (geli_open.c: the
+ * typed passphrase goes to the providers alone -- the rescue partition
+ * opens with it and the preloaded key file -- the owner's seal and the
+ * counters stay untouched, as on the duress path), the record flagged
+ * RESCUE so the next boot sees that a rescue boot lay between. Without an
+ * unlock hash compiled in the offer is withdrawn: a deviation needs the
+ * acknowledgement, an unprovisioned build stays on its production root.
+ */
+static void
+action_offer(const struct appraisal *a)
+{
+	const char *root = kenv(a, "rescue");
+	char note[128];
+	int c = -1, waited;
+
+	if (root == NULL || root[0] == '\0')
+		return;
+	/* Own copy: a getenv() pointer is dead after setenv()/unsetenv(). */
+	strlcpy(note, root, sizeof(note));
+	while (ischar())		/* a key from the firmware's boot menu is no answer */
+		(void)getchar();
+	printf("%s: boot the rescue root %s? (y/N) [%d s] ", a->gate->name, note, OFFER_WAIT_S);
+	for (waited = 0; waited < OFFER_WAIT_S * 10 && !ischar(); waited++)
+		delay(100000);
+	if (ischar())
+		c = getchar();
+	printf("\n");
+	if (c != 'y' && c != 'Y')
+		return;
+	if (!unlock_owner(a)) {
+		printf("%s: no unlock secret compiled in -- the rescue root needs the owner's acknowledgement, staying on the production root\n",
+		    a->gate->name);
+		return;
+	}
+	evidence_set_rescue();
+	setenv("vfs.root.mountfrom", note, 1);
+	unsetenv("vfs.root.mountfrom.options");
+	record_nextboot_clear();
+	printf("%s: rescue boot acknowledged -- diverting to %s, the TPM is not asked\n",
+	    a->gate->name, note);
 }
 
 /* Sleep 2^attempts seconds (capped at 64) before whatever comes next. */
@@ -657,8 +726,8 @@ action_nextboot(const struct appraisal *a)
  * The handover word: HMAC(HMAC(word secret, "handover"),
  * "<ledger hex>|<counter>|<flags>"). earlboot recomputes it from the
  * same inputs it can see (the published ledger and counter) plus the flags
- * it CANNOT see -- so it learns the flags by trying all eight: bit 1
- * taint, bit 2 duress, bit 4 prompted. Nothing else is derivable from the word. The
+ * it CANNOT see -- so it learns the flags by trying all thirty-two: bit 1
+ * taint, bit 2 duress, bit 4 prompted, bit 8 unlocked, bit 16 rescue. Nothing else is derivable from the word. The
  * message is ASCII so a shell reproduces it byte for byte with openssl.
  */
 static void
@@ -681,6 +750,8 @@ action_handover(const struct appraisal *a)
 		flags |= RECORD_F_PROMPTED;
 	if (e->unlocked)
 		flags |= RECORD_F_UNLOCKED;
+	if (e->rescue)
+		flags |= RECORD_F_RESCUE;
 	evidence_digest(d);
 	hex_of(d, sizeof(d), hex);
 	snprintf(msg, sizeof(msg), "%s|%llu|%u", hex,
@@ -736,6 +807,7 @@ ACTION_DEFINE(taint,    action_taint);
 ACTION_DEFINE(expire,   action_expire);
 ACTION_DEFINE(single,   action_single);
 ACTION_DEFINE(divert,   action_divert);
+ACTION_DEFINE(offer,    action_offer);
 ACTION_DEFINE(nextboot, action_nextboot);
 ACTION_DEFINE(handover, action_handover);
 ACTION_DEFINE(halt,     action_halt);

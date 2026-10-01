@@ -98,6 +98,13 @@ when_duress(const struct appraisal *a __unused)
 	return (evidence()->duress);
 }
 
+/* offer_act fired and the owner acknowledged: this boot goes to the rescue root. */
+bool
+when_rescue(const struct appraisal *a __unused)
+{
+	return (evidence()->rescue);
+}
+
 /* --- execution --- */
 
 void
@@ -171,6 +178,8 @@ record_flags(void)
 		f |= RECORD_F_PROMPTED;
 	if (e->unlocked)
 		f |= RECORD_F_UNLOCKED;
+	if (e->rescue)
+		f |= RECORD_F_RESCUE;
 	return (f);
 }
 

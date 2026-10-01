@@ -128,6 +128,7 @@ extern const struct action	taint_act;
 extern const struct action	expire_act;
 extern const struct action	single_act;
 extern const struct action	divert_act;
+extern const struct action	offer_act;
 extern const struct action	nextboot_act;
 extern const struct action	handover_act;
 extern const struct action	halt_act;

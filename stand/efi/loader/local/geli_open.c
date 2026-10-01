@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include "action.h"			/* readsecret, halt_boot */
+#include "evidence.h"			/* the rescue bit: offer_act fired */
 #include "tpm_keyfile.h"
 #include "geli_keys.h"
 #include "geli_open.h"
@@ -61,8 +62,15 @@ geli_open_ensure(void)
 		printf("\nGELI passphrase: ");
 		readsecret(pw, sizeof(pw));
 		printf("\n");
-		tpm_keyfile_prepare(pw);	/* the TPM checks the line and releases its file */
-		if (geli_keys_prepare(pw, tpm_keyfile_state()->unsealed) > 0) {
+		/*
+		 * On the way to the rescue root (offer_act) the TPM is not
+		 * asked: the line opens the rescue partition with the
+		 * preloaded key file, the owner's seal and the counters stay
+		 * untouched, a wrong line costs nothing in the TPM.
+		 */
+		if (!evidence()->rescue)
+			tpm_keyfile_prepare(pw);	/* the TPM checks the line and releases its file */
+		if (geli_keys_prepare(pw, evidence()->rescue ? false : tpm_keyfile_state()->unsealed) > 0) {
 			explicit_bzero(pw, sizeof(pw));
 			opened = true;
 			return;
