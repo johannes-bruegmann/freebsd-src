@@ -555,18 +555,34 @@ action_unlock(const struct appraisal *a)
  * RESCUE so the next boot sees that a rescue boot lay between. Without an
  * unlock hash compiled in the offer is withdrawn: a deviation needs the
  * acknowledgement, an unprovisioned build stays on its production root.
+ *
+ * The card's GELI key file is loaded HERE, on the way to the rescue root
+ * only (loader.trust.<gate>.rescue.provider names the partition, .keyfile
+ * the file, preloaded as <provider>:geli_keyfile0 like 'load -t'): the
+ * production loader.conf names no key file for the card, so on the
+ * production path the kernel never tries the card -- and never asks for
+ * it. The leafs are in the environment because the loader read
+ * loader.trust.conf before this phase (policy.c, trust_conf_preload).
  */
 static void
 action_offer(const struct appraisal *a)
 {
 	const char *root = kenv(a, "rescue");
-	char note[128];
+	const char *prov, *keyfile;
+	char note[128], provider[32], file[128], type[64];
 	int c = -1, waited;
 
 	if (root == NULL || root[0] == '\0')
 		return;
-	/* Own copy: a getenv() pointer is dead after setenv()/unsetenv(). */
+	/* Own copies: a getenv() pointer is dead after setenv()/unsetenv(). */
 	strlcpy(note, root, sizeof(note));
+	provider[0] = file[0] = '\0';
+	prov = kenv(a, "rescue.provider");
+	if (prov != NULL)
+		strlcpy(provider, prov, sizeof(provider));
+	keyfile = kenv(a, "rescue.keyfile");
+	if (keyfile != NULL)
+		strlcpy(file, keyfile, sizeof(file));
 	while (ischar())		/* a key from the firmware's boot menu is no answer */
 		(void)getchar();
 	printf("%s: boot the rescue root %s? (y/N) [%d s] ", a->gate->name, note, OFFER_WAIT_S);
@@ -581,6 +597,14 @@ action_offer(const struct appraisal *a)
 		printf("%s: no unlock secret compiled in -- the rescue root needs the owner's acknowledgement, staying on the production root\n",
 		    a->gate->name);
 		return;
+	}
+	if (provider[0] != '\0' && file[0] != '\0') {
+		snprintf(type, sizeof(type), "%s:geli_keyfile0", provider);
+		if (file_loadraw(file, type, 1) == NULL) {
+			printf("%s: the rescue key file %s did not load for %s\n",
+			    a->gate->name, file, provider);
+			halt_boot("rescue key file");
+		}
 	}
 	evidence_set_rescue();
 	setenv("vfs.root.mountfrom", note, 1);

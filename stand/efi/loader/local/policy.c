@@ -191,6 +191,64 @@ post_of(enum phase ph)
 }
 
 /*
+ * The stage's loader.trust.conf into the environment BEFORE the loader
+ * phase. The Lua side reads loader.conf and its loader_conf_files only in
+ * interact(), after local_run(PHASE_LOADER) -- so a leaf an action of that
+ * phase reads (offer_act: loader.trust.<gate>.rescue) was never there when
+ * it asked. The file is elebake's, one key="value" per line, '#' comments
+ * (stage loaderconf mk); whatever it holds Lua sets again later, the same
+ * values. A missing file is a stage without leafs: nothing to do.
+ */
+#define	TRUST_CONF		"/boot/loader.trust.conf"
+#define	TRUST_CONF_MAX		16384
+
+static void
+trust_conf_preload(void)
+{
+	char *buf, *line, *next, *eq, *val, *end;
+	ssize_t n;
+	int fd;
+
+	fd = open(TRUST_CONF, O_RDONLY);
+	if (fd < 0)
+		return;
+	buf = malloc(TRUST_CONF_MAX + 1);
+	if (buf == NULL) {
+		close(fd);
+		return;
+	}
+	n = read(fd, buf, TRUST_CONF_MAX);
+	close(fd);
+	if (n <= 0) {
+		free(buf);
+		return;
+	}
+	buf[n] = '\0';
+	for (line = buf; line != NULL && *line != '\0'; line = next) {
+		next = strchr(line, '\n');
+		if (next != NULL)
+			*next++ = '\0';
+		if (*line == '#' || *line == '\0')
+			continue;
+		eq = strchr(line, '=');
+		if (eq == NULL)
+			continue;
+		*eq = '\0';
+		val = eq + 1;
+		if (*val == '"') {
+			val++;
+			end = strrchr(val, '"');
+			if (end != NULL)
+				*end = '\0';
+		}
+		if (strncmp(line, "loader.trust.", 13) == 0)
+			setenv(line, val, 1);
+	}
+	explicit_bzero(buf, TRUST_CONF_MAX + 1);
+	free(buf);
+}
+
+/*
  * A build with no policy bound -- the checkout's own foundation.c, or a
  * stage that binds nothing -- runs every phase empty and boots like the
  * stock loader. That is a configuration, not an error: whether the gates
@@ -205,6 +263,8 @@ local_run(enum phase ph, int argc, CHAR16 *argv[])
 	enum phase post = post_of(ph);
 
 	evidence_args(argc, argv);
+	if (ph == PHASE_LOADER)
+		trust_conf_preload();
 	/*
 	 * KERNEL: the gates measure; none of them halts or asks for a
 	 * password (unlock_act, bound where the owner wants an informed
