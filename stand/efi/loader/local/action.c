@@ -556,13 +556,16 @@ action_unlock(const struct appraisal *a)
  * unlock hash compiled in the offer is withdrawn: a deviation needs the
  * acknowledgement, an unprovisioned build stays on its production root.
  *
- * The card's GELI key file is loaded HERE, on the way to the rescue root
- * only (loader.trust.<gate>.rescue.provider names the partition, .keyfile
- * the file, preloaded as <provider>:geli_keyfile0 like 'load -t'): the
+ * The card's GELI key file travels only on the way to the rescue root
+ * (loader.trust.<gate>.rescue.provider names the partition, .keyfile the
+ * file; preloaded as <provider>:geli_keyfile0 like 'load -t'): the
  * production loader.conf names no key file for the card, so on the
  * production path the kernel never tries the card -- and never asks for
- * it. The leafs are in the environment because the loader read
- * loader.trust.conf before this phase (policy.c, trust_conf_preload).
+ * it. This phase can only NOTE the file (file_loadraw refuses before a
+ * kernel is loaded); the kernel phase loads it before its policies and
+ * the dialog (policy.c, rescue_keyfile_load). The leafs are in the
+ * environment because the loader read loader.trust.conf before this
+ * phase (policy.c, trust_conf_preload).
  */
 static void
 action_offer(const struct appraisal *a)
@@ -600,11 +603,7 @@ action_offer(const struct appraisal *a)
 	}
 	if (provider[0] != '\0' && file[0] != '\0') {
 		snprintf(type, sizeof(type), "%s:geli_keyfile0", provider);
-		if (file_loadraw(file, type, 1) == NULL) {
-			printf("%s: the rescue key file %s did not load for %s\n",
-			    a->gate->name, file, provider);
-			halt_boot("rescue key file");
-		}
+		evidence_set_rescue_keyfile(file, type);
 	}
 	evidence_set_rescue();
 	setenv("vfs.root.mountfrom", note, 1);

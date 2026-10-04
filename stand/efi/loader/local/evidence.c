@@ -133,6 +133,13 @@ evidence_set_rescue(void)
 	E.rescue = true;
 }
 
+void
+evidence_set_rescue_keyfile(const char *file, const char *type)
+{
+	strlcpy(E.rescue_keyfile, file, sizeof(E.rescue_keyfile));
+	strlcpy(E.rescue_keytype, type, sizeof(E.rescue_keytype));
+}
+
 /*
  * The canonical rendering: one line per gate "phase:gate:verdict:failed:
  * skipped", then the counters. Deterministic for a given boot, so two

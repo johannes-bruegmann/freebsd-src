@@ -17,6 +17,7 @@
 #include <stand.h>
 #include <string.h>
 #include <efi.h>			/* CHAR16 */
+#include <bootstrap.h>			/* file_loadraw, command_errbuf */
 
 #include "claim.h"
 #include "gate.h"
@@ -256,6 +257,29 @@ trust_conf_preload(void)
  * (elebake stage build renders foundation.c from the stage before make),
  * never here at run time.
  */
+/*
+ * The card's GELI key file on the way to the rescue root (offer_act noted
+ * it): preloaded here, at the start of the kernel phase, as
+ * <provider>:geli_keyfile0 -- the kernel is loaded by now (file_loadraw
+ * refuses earlier), the dialog that opens the card has not run yet, and
+ * bi_load packs the file with the kernel's metadata afterwards. A file
+ * that does not load halts the boot: the owner asked for the rescue root
+ * and would get a kernel that cannot open it.
+ */
+static void
+rescue_keyfile_load(void)
+{
+	const struct evidence *e = evidence();
+
+	if (!e->rescue || e->rescue_keyfile[0] == '\0')
+		return;
+	if (file_loadraw(e->rescue_keyfile, e->rescue_keytype, 1) == NULL) {
+		printf("rescue: the key file %s did not load as %s: %s\n",
+		    e->rescue_keyfile, e->rescue_keytype, command_errbuf);
+		halt_boot("rescue key file");
+	}
+}
+
 void
 local_run(enum phase ph, int argc, CHAR16 *argv[])
 {
@@ -265,6 +289,8 @@ local_run(enum phase ph, int argc, CHAR16 *argv[])
 	evidence_args(argc, argv);
 	if (ph == PHASE_LOADER)
 		trust_conf_preload();
+	if (ph == PHASE_KERNEL)
+		rescue_keyfile_load();
 	/*
 	 * KERNEL: the gates measure; none of them halts or asks for a
 	 * password (unlock_act, bound where the owner wants an informed

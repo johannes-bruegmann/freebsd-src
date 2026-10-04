@@ -52,6 +52,8 @@ struct evidence {
 	bool			 taint;		/* taint_act fired (a policy decision) */
 	bool			 unlocked;	/* unlock_act took the passphrase (the owner's override) */
 	bool			 rescue;	/* offer_act: the owner chose the rescue root (acknowledged) */
+	char			 rescue_keyfile[128];	/* the card's GELI key file, loaded at the kernel phase */
+	char			 rescue_keytype[64];	/* its preload type, <provider>:geli_keyfile0 */
 	bool			 silence;	/* silence_act: no publish */
 	int			 argc;		/* the LoadOptions, kept from BOOT */
 	CHAR16			**argv;
@@ -69,6 +71,7 @@ void	evidence_set_duress(void);
 void	evidence_set_taint(void);
 void	evidence_set_unlocked(void);
 void	evidence_set_rescue(void);
+void	evidence_set_rescue_keyfile(const char *, const char *);
 void	evidence_set_silence(void);
 
 /* sha256 over the ledger's canonical rendering (the handover word's input) */
