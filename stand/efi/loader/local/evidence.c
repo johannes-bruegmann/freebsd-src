@@ -128,9 +128,10 @@ evidence_set_unlocked(void)
 }
 
 void
-evidence_set_rescue(void)
+evidence_set_rescue(const char *root)
 {
 	E.rescue = true;
+	strlcpy(E.rescue_root, root, sizeof(E.rescue_root));
 }
 
 void

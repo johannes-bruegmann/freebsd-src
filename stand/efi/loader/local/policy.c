@@ -165,6 +165,27 @@ decoy_divert(void)
 	setenv("kern.geom.eli.boot_prompt", "0", 1);
 }
 
+/*
+ * The rescue root instead of the production one (offer_act, acknowledged):
+ * vfs.root.mountfrom from the evidence, at the end of the kernel phase like
+ * the decoy's divert -- the kenv guard measured the production value, the
+ * kernel and modules are the verified ones from the medium, the card's key
+ * file is preloaded (rescue_keyfile_load) and the dialog opened the card.
+ * Announced here, under the dialogs, where the owner sees it: interact()
+ * cleared the screen after the question.
+ */
+static void
+rescue_divert(void)
+{
+	const struct evidence *e = evidence();
+	char note[128];
+
+	strlcpy(note, e->rescue_root, sizeof(note));	/* a getenv() pointer dies with setenv() */
+	setenv("vfs.root.mountfrom", note, 1);
+	unsetenv("vfs.root.mountfrom.options");
+	printf("rescue: diverting to %s (acknowledged at the loader phase)\n", note);
+}
+
 static uint8_t
 record_flags(void)
 {
@@ -312,6 +333,8 @@ local_run(enum phase ph, int argc, CHAR16 *argv[])
 			decoy_divert();
 			return;
 		}
+		if (evidence()->rescue)
+			rescue_divert();
 		(void)record_commit(record_flags());
 	}
 }

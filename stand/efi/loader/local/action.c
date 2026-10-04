@@ -548,7 +548,10 @@ action_unlock(const struct appraisal *a)
  * owner of the machine, not the holder of the card), then the divert:
  * vfs.root.mountfrom from loader.trust.<gate>.rescue (the same leaf
  * divert_act reads; a fixed target, no free text, so the measured kernel
- * boots nothing but the rescue root), the TPM not asked (geli_open.c: the
+ * boots nothing but the rescue root) -- set at the END of the kernel phase
+ * like the decoy's (policy.c, rescue_divert): the Lua side sets
+ * vfs.root.mountfrom from loader.conf after this phase and would undo it
+ * here, and the kenv guard measures the production value; the TPM not asked (geli_open.c: the
  * typed passphrase goes to the providers alone -- the rescue partition
  * opens with it and the preloaded key file -- the owner's seal and the
  * counters stay untouched, as on the duress path), the record flagged
@@ -605,11 +608,9 @@ action_offer(const struct appraisal *a)
 		snprintf(type, sizeof(type), "%s:geli_keyfile0", provider);
 		evidence_set_rescue_keyfile(file, type);
 	}
-	evidence_set_rescue();
-	setenv("vfs.root.mountfrom", note, 1);
-	unsetenv("vfs.root.mountfrom.options");
+	evidence_set_rescue(note);
 	record_nextboot_clear();
-	printf("%s: rescue boot acknowledged -- diverting to %s, the TPM is not asked\n",
+	printf("%s: rescue boot acknowledged -- %s at the kernel phase, the TPM is not asked\n",
 	    a->gate->name, note);
 }
 
