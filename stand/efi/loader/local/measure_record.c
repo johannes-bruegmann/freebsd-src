@@ -28,6 +28,7 @@
 #include "measurement.h"
 #include "clock.h"
 #include "record.h"
+#include "evidence.h"
 #include "tpm.h"
 #include "tpm_keyfile.h"
 #include "geli_keys.h"
@@ -505,6 +506,8 @@ measure_anchor_valid(int argc __unused, CHAR16 *argv[] __unused)
 
 	if (!rs->valid || getenv("loader.trust.tpm.anchor.nv") == NULL)
 		return (m);
+	if (evidence()->rescue)
+		return (m);		/* the anchor is the production's: nothing to compare here */
 	if (!a->present && rs->prev.counter <= 1)
 		return (m);		/* the first boot after the leaf arrived: nothing to compare */
 	m.present = true;

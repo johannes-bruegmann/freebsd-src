@@ -447,6 +447,24 @@ unseal(const uint8_t sealed[static RECORD_SEALED_LEN], struct record_body *body)
 
 /* ------------------------------------------------------- NVRAM access */
 
+/*
+ * The record of each root: the production and the rescue seal under their
+ * own material (the key slot that opened the root), so each root keeps its
+ * own variable and its own chain file on the medium -- a boot of the one
+ * leaves the other's chain intact.
+ */
+static const char *
+record_var_name(void)
+{
+	return (evidence()->rescue ? "ElvRescueRecord" : RECORD_VAR);
+}
+
+static const char *
+chain_file_name(void)
+{
+	return (evidence()->rescue ? "chain-rescue" : "chain");
+}
+
 bool
 record_var_set(const char *name, const void *buf, size_t len)
 {
@@ -553,6 +571,8 @@ anchor_commit(const struct record_body *b)
 	struct record_anchor a;
 	uint32_t index, key, pcr;
 
+	if (evidence()->rescue)
+		return;		/* the anchor is the production's; a rescue boot leaves it */
 	if (!leaf_u32("loader.trust.tpm.anchor.nv", &index) ||
 	    !leaf_u32("loader.trust.tpm.key.handle", &key) ||
 	    !leaf_u32("loader.trust.tpm.cap.pcr", &pcr) || pcr > 23)
@@ -708,7 +728,7 @@ medium_last_link(uint8_t out[static SHA256_DIGEST_LENGTH], bool *answered)
 	bool ok = false;
 
 	*answered = false;
-	f = medium_open("chain", false);
+	f = medium_open(chain_file_name(), false);
 	if (f == NULL)
 		return (false);
 	*answered = true;
@@ -738,7 +758,7 @@ record_load(void)
 	if (!record_secret_present())
 		return (&S);	/* before GELI unlocked: not loaded, tried again later */
 	loaded = true;
-	if (!record_var_get(RECORD_VAR, sealed, &len))
+	if (!record_var_get(record_var_name(), sealed, &len))
 		return (&S);
 	S.present = true;
 	if (len == sizeof(sealed) && !unseal(sealed, &S.prev) &&
@@ -825,8 +845,8 @@ record_commit(uint8_t flags)
 	memcpy(msg + SHA256_DIGEST_LENGTH, &b, sizeof(b));
 	record_hmac("chain", msg, sizeof(msg), b.chain);
 	seal(&b, sealed);
-	ok = record_var_set(RECORD_VAR, sealed, sizeof(sealed));
-	(void)record_medium_append("chain", b.chain, sizeof(b.chain));
+	ok = record_var_set(record_var_name(), sealed, sizeof(sealed));
+	(void)record_medium_append(chain_file_name(), b.chain, sizeof(b.chain));
 	anchor_commit(&b);			/* needs the material: before the wipe */
 	ikm_wipe();
 	explicit_bzero(&b, sizeof(b));
