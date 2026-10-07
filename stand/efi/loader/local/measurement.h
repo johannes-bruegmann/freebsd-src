@@ -196,6 +196,24 @@ struct measurement	measure_geli(int argc, CHAR16 *argv[]);
 struct measurement	measure_gpt(int argc, CHAR16 *argv[]);
 
 /*
+ * --- witnesses (measure_disk.c) ---
+ * A witness is a GELI container the loader reads but never opens: the
+ * rescue card, the quarantine. LOADER_TRUST_WITNESS_LABELS lists them as
+ * name:guid:digest, comma-separated -- the GPT partition GUID and the
+ * sha256 elebake took at the rollout (stage witness measure) over the
+ * four ZFS vdev labels and the GELI metadata sector, in the ciphertext:
+ * every transaction group written into the container moves it.
+ * measure_witness_labels   1 iff every witness whose partition is present
+ *                    hashes to its receipt; absent when no witness is
+ *                    present at all
+ * measure_witness_present  1 iff every listed witness is present (a
+ *                    missing card is its own state, not a mismatch);
+ *                    absent when the list is empty
+ */
+struct measurement	measure_witness_labels(int argc, CHAR16 *argv[]);
+struct measurement	measure_witness_present(int argc, CHAR16 *argv[]);
+
+/*
  * --- the boot record and its anchors (measure_record.c, KERNEL phase) ---
  * The loader keeps a record in NVRAM (record.h): boot counter, last boot
  * time, the TPM's reset count and clock, the NVMe's power-cycle count, and
@@ -365,6 +383,8 @@ struct measurement	measure_ledger_prompted(int argc, CHAR16 *argv[]);
  * diagnose_keys                keys.bytes: byte counts of PK,KEK,db
  * diagnose_marker              argv: the boot command line, marker redacted
  * diagnose_images              images.count: number of loaded EFI images
+ * diagnose_witness             witness.state: every listed witness with
+ *                              match, differ or absent
  * diagnose_pci                 pci.count: number of PCI devices
  * diagnose_record              record: what the NVRAM record holds
  * diagnose_counter_step        anchors: recorded/current TPM reset count, NV
@@ -406,6 +426,7 @@ void	diagnose_tpm(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_nvme(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_tpm_keyfile(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_geli_slot(int argc, CHAR16 *argv[], struct diagnosis *);	/* geli.slot: keyfiles | passphrase | closed */
+void	diagnose_witness(int argc, CHAR16 *argv[], struct diagnosis *);	/* witness.state: <name>=match|differ|absent,... */
 void	diagnose_halt(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_time_boot(int argc, CHAR16 *argv[], struct diagnosis *);
 void	diagnose_time_prompt(int argc, CHAR16 *argv[], struct diagnosis *);

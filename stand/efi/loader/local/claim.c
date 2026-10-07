@@ -14,6 +14,7 @@
 #include "measurement.h"
 #include "claim.h"
 #include "gate.h"
+#include "evidence.h"
 
 #ifndef LOADER_TRUST_SKIP		/* comma-separated claim names to disarm */
 #define	LOADER_TRUST_SKIP	""
@@ -37,6 +38,27 @@ disarmed(const char *name)
 	return (0);
 }
 
+/*
+ * The rescue path's own expectation of a claim: loader.trust.<gate>.rescue.
+ * <claim name, lower case> in the stage's conf. NULL when the boot is not a
+ * rescue boot or the conf says nothing; "skip" disarms the claim there.
+ */
+static const char *
+rescue_expectation(const struct gate *g, const char *claim)
+{
+	char leaf[64], name[96];
+	size_t i;
+
+	if (!evidence()->rescue)
+		return (NULL);
+	snprintf(leaf, sizeof(leaf), "rescue.%s", claim);
+	for (i = 0; leaf[i] != '\0'; i++)
+		if (leaf[i] >= 'A' && leaf[i] <= 'Z')
+			leaf[i] = leaf[i] - 'A' + 'a';
+	gate_var(g, leaf, name, sizeof(name));
+	return (getenv(name));
+}
+
 enum verdict
 claim_verdict(const struct gate *g, const struct claim *c,
     const struct measurement *actual)
@@ -45,6 +67,19 @@ claim_verdict(const struct gate *g, const struct claim *c,
 	char name[64];
 	const char *text;
 
+	text = rescue_expectation(g, expected.name);
+	if (text != NULL) {
+		if (strcmp(text, "skip") == 0 || disarmed(expected.name))
+			return (VERDICT_SKIP);
+		expected.key = NULL;
+		expected.type = actual->type;
+		if (!measurement_parse(&expected, text))
+			return (VERDICT_FAIL);
+		if (!actual->present)
+			return (VERDICT_FAIL);
+		return (measurement_equal(&expected, actual) ?
+		    VERDICT_PASS : VERDICT_FAIL);
+	}
 	if (expected.key != NULL) {
 		/*
 		 * From loader.trust.<gate>.<key>: the stage's conf, not the

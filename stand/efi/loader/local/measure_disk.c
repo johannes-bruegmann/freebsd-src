@@ -25,10 +25,14 @@
 
 #include <crypto/sha2/sha256.h>
 
+#include "geliboot.h"
 #include "measurement.h"
 
 #ifndef LOADER_TRUST_GELI_PARTS
 #define	LOADER_TRUST_GELI_PARTS	""
+#endif
+#ifndef LOADER_TRUST_WITNESS_LABELS
+#define	LOADER_TRUST_WITNESS_LABELS	""
 #endif
 
 static EFI_GUID blkio_guid = BLOCK_IO_PROTOCOL;
@@ -279,4 +283,273 @@ measure_gpt(int argc __unused, CHAR16 *argv[] __unused)
 	SHA256_Final(m.value.digest, &ctx);
 	m.present = true;
 	return (m);
+}
+
+/*
+ * --- witnesses: name:guid:digest, comma-separated (LOADER_TRUST_WITNESS_LABELS) ---
+ *
+ * The regions elebake hashes (stage witness digest), in this order: labels
+ * 0 and 1 (the first 512 KiB of the provider), labels 2 and 3 (the last
+ * 512 KiB of the provider size aligned down to 256 KiB), the partition's
+ * last sector (the GELI metadata). With authentication a logical sector of
+ * the provider occupies bytes_per_sector physical bytes -- the geometry of
+ * g_eli (eli_metadata_softc), computed from the metadata sector here as
+ * there -- so the physical regions are the logical ones scaled.
+ */
+
+#define	WITNESS_MAX	8
+#define	VDEV_LABEL	262144ULL
+#define	LABEL_PAIR	(2 * VDEV_LABEL)
+
+struct witness {
+	char	name[24];
+	char	guid[40];
+	uint8_t	digest[SHA256_DIGEST_LENGTH];
+};
+
+enum witness_state { WITNESS_ABSENT, WITNESS_MATCH, WITNESS_DIFFER };
+
+static bool
+hex_digest(const char *p, size_t n, uint8_t out[SHA256_DIGEST_LENGTH])
+{
+	unsigned int i, v;
+	char ch;
+
+	if (n != 2 * SHA256_DIGEST_LENGTH)
+		return (false);
+	for (i = 0; i < n; i++) {
+		ch = p[i];
+		if (ch >= '0' && ch <= '9')
+			v = ch - '0';
+		else if (ch >= 'a' && ch <= 'f')
+			v = ch - 'a' + 10;
+		else
+			return (false);
+		if (i % 2 == 0)
+			out[i / 2] = v << 4;
+		else
+			out[i / 2] |= v;
+	}
+	return (true);
+}
+
+/* One entry of the list; false at its end or on a malformed entry. */
+static bool
+next_witness(const char **cursor, struct witness *w)
+{
+	const char *p = *cursor, *e, *c1, *c2;
+	size_t n;
+
+	while (*p == ',' || *p == ' ')
+		p++;
+	if (*p == '\0')
+		return (false);
+	e = p;
+	while (*e != '\0' && *e != ',' && *e != ' ')
+		e++;
+	*cursor = e;
+	c1 = memchr(p, ':', (size_t)(e - p));
+	if (c1 == NULL)
+		return (false);
+	c2 = memchr(c1 + 1, ':', (size_t)(e - c1 - 1));
+	if (c2 == NULL)
+		return (false);
+	n = (size_t)(c1 - p);
+	if (n == 0 || n >= sizeof(w->name))
+		return (false);
+	memcpy(w->name, p, n);
+	w->name[n] = '\0';
+	n = (size_t)(c2 - c1 - 1);
+	if (n == 0 || n >= sizeof(w->guid))
+		return (false);
+	memcpy(w->guid, c1 + 1, n);
+	w->guid[n] = '\0';
+	return (hex_digest(c2 + 1, (size_t)(e - c2 - 1), w->digest));
+}
+
+/* sha256-update with [lba, lba + blocks) of the handle; false on a read error. */
+static bool
+hash_blocks(SHA256_CTX *ctx, EFI_HANDLE h, uint64_t lba, uint64_t blocks,
+    uint32_t bsize)
+{
+	uint8_t *buf;
+	uint64_t take, chunk = 64;
+
+	buf = malloc(chunk * bsize);
+	if (buf == NULL)
+		return (false);
+	while (blocks > 0) {
+		take = blocks < chunk ? blocks : chunk;
+		if (!read_blocks(h, lba, buf, (size_t)(take * bsize))) {
+			free(buf);
+			return (false);
+		}
+		SHA256_Update(ctx, buf, (size_t)(take * bsize));
+		lba += take;
+		blocks -= take;
+	}
+	free(buf);
+	return (true);
+}
+
+/*
+ * The digest of a present witness: the geometry from its GELI metadata
+ * sector, then the three regions. False when the sector decodes to no
+ * GELI metadata or a read fails.
+ */
+static bool
+witness_digest(EFI_HANDLE h, uint8_t out[SHA256_DIGEST_LENGTH])
+{
+	struct g_eli_metadata md;
+	SHA256_CTX ctx;
+	uint32_t bsize;
+	uint64_t last, msz, bps, media, aligned, pair_blocks, dps;
+	uint8_t *buf;
+	bool ok;
+
+	if (!block_geometry(h, &bsize, &last))
+		return (false);
+	msz = (last + 1) * bsize;
+	buf = malloc(bsize);
+	if (buf == NULL)
+		return (false);
+	if (!read_blocks(h, last, buf, bsize)) {
+		free(buf);
+		return (false);
+	}
+	if (eli_metadata_decode(buf, &md) != 0 &&
+	    (bsize <= 512 || eli_metadata_decode(buf + bsize - 512, &md) != 0)) {
+		free(buf);
+		return (false);
+	}
+	free(buf);
+	if (md.md_sectorsize == 0 || md.md_sectorsize > LABEL_PAIR ||
+	    msz <= bsize)
+		return (false);
+	if (md.md_flags & G_ELI_FLAG_AUTH) {
+		dps = bsize - g_eli_hashlen(md.md_aalgo);
+		dps -= dps % 16;
+		if (dps == 0)
+			return (false);
+		bps = ((md.md_sectorsize - 1) / dps + 1) * bsize;
+		media = (msz - bsize) / bps * md.md_sectorsize;
+	} else {
+		bps = md.md_sectorsize;
+		media = (msz - bsize) - (msz - bsize) % md.md_sectorsize;
+	}
+	aligned = media - media % VDEV_LABEL;
+	if (aligned < LABEL_PAIR)
+		return (false);
+	pair_blocks = LABEL_PAIR / md.md_sectorsize * bps / bsize;
+	SHA256_Init(&ctx);
+	ok = hash_blocks(&ctx, h, 0, pair_blocks, bsize) &&
+	    hash_blocks(&ctx, h, (aligned - LABEL_PAIR) / md.md_sectorsize *
+	    bps / bsize, pair_blocks, bsize) &&
+	    hash_blocks(&ctx, h, last, 1, bsize);
+	if (!ok)
+		return (false);
+	SHA256_Final(out, &ctx);
+	return (true);
+}
+
+static enum witness_state
+witness_state(const struct witness *w)
+{
+	EFI_HANDLE h;
+	uint8_t digest[SHA256_DIGEST_LENGTH];
+
+	if (!find_partition(w->guid, &h))
+		return (WITNESS_ABSENT);
+	if (!witness_digest(h, digest))
+		return (WITNESS_DIFFER);	/* present, but not the container the receipt describes */
+	return (memcmp(digest, w->digest, sizeof(digest)) == 0 ?
+	    WITNESS_MATCH : WITNESS_DIFFER);
+}
+
+/* The states of every listed witness, once per boot; the count listed. */
+static unsigned int
+witness_states(struct witness ws[WITNESS_MAX], enum witness_state st[WITNESS_MAX])
+{
+	static struct witness cache[WITNESS_MAX];
+	static enum witness_state cache_st[WITNESS_MAX];
+	static unsigned int cache_n;
+	static bool done;
+	const char *cursor = LOADER_TRUST_WITNESS_LABELS;
+	unsigned int i;
+
+	if (!done) {
+		done = true;
+		cache_n = 0;
+		while (cache_n < WITNESS_MAX &&
+		    next_witness(&cursor, &cache[cache_n])) {
+			cache_st[cache_n] = witness_state(&cache[cache_n]);
+			cache_n++;
+		}
+	}
+	for (i = 0; i < cache_n; i++) {
+		ws[i] = cache[i];
+		st[i] = cache_st[i];
+	}
+	return (cache_n);
+}
+
+struct measurement
+measure_witness_labels(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "WitnessLabels", .type = MEAS_BYTE };
+	struct witness ws[WITNESS_MAX];
+	enum witness_state st[WITNESS_MAX];
+	unsigned int n, i, present = 0;
+	bool ok = true;
+
+	n = witness_states(ws, st);
+	for (i = 0; i < n; i++) {
+		if (st[i] == WITNESS_ABSENT)
+			continue;
+		present++;
+		if (st[i] != WITNESS_MATCH)
+			ok = false;
+	}
+	if (present == 0)
+		return (m);
+	m.present = true;
+	m.value.byte = ok ? 1 : 0;
+	return (m);
+}
+
+struct measurement
+measure_witness_present(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "WitnessPresent", .type = MEAS_BYTE };
+	struct witness ws[WITNESS_MAX];
+	enum witness_state st[WITNESS_MAX];
+	unsigned int n, i;
+	bool all = true;
+
+	n = witness_states(ws, st);
+	if (n == 0)
+		return (m);
+	for (i = 0; i < n; i++)
+		if (st[i] == WITNESS_ABSENT)
+			all = false;
+	m.present = true;
+	m.value.byte = all ? 1 : 0;
+	return (m);
+}
+
+void
+diagnose_witness(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
+{
+	struct witness ws[WITNESS_MAX];
+	enum witness_state st[WITNESS_MAX];
+	unsigned int n, i;
+	size_t len = 0;
+	static const char *const word[] = { "absent", "match", "differ" };
+
+	d->leaf = "witness.state";
+	d->text[0] = '\0';
+	n = witness_states(ws, st);
+	for (i = 0; i < n && len < sizeof(d->text); i++)
+		len += snprintf(d->text + len, sizeof(d->text) - len, "%s%s=%s",
+		    i > 0 ? "," : "", ws[i].name, word[st[i]]);
 }
