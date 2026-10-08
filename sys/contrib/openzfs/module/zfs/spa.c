@@ -265,6 +265,14 @@ static int		spa_load_print_vdev_tree = B_FALSE;
 uint64_t	zfs_max_missing_tvds = 0;
 
 /*
+ * Import the root pool read-only (a loader tunable): the pool is activated
+ * with SPA_MODE_READ as 'zpool import -o readonly=on' would -- no txg
+ * sync, nothing written to its labels. A rescue root on removable media
+ * boots this way so the media stays what it was measured as.
+ */
+int	zfs_rootpool_readonly = 0;
+
+/*
  * The parameters below are similar to zfs_max_missing_tvds but are only
  * intended for a preliminary open of the pool with an untrusted config which
  * might be incomplete or out-dated.
@@ -6454,7 +6462,8 @@ spa_open_common(const char *pool, spa_t **spapp, const void *tag,
 		if (policy.zlp_rewind & ZPOOL_DO_REWIND)
 			state = SPA_LOAD_RECOVER;
 
-		spa_activate(spa, spa_mode_global);
+		spa_activate(spa, (spa->spa_is_root && zfs_rootpool_readonly) ?
+		    SPA_MODE_READ : spa_mode_global);
 
 		if (state != SPA_LOAD_RECOVER)
 			spa->spa_last_ubsync_txg = spa->spa_load_txg = 0;
@@ -11715,6 +11724,9 @@ ZFS_MODULE_PARAM(zfs_zio, zio_, taskq_batch_tpq, UINT, ZMOD_RW,
 ZFS_MODULE_PARAM(zfs, zfs_, max_missing_tvds, U64, ZMOD_RW,
 	"Allow importing pool with up to this number of missing top-level "
 	"vdevs (in read-only mode)");
+
+ZFS_MODULE_PARAM(zfs, zfs_, rootpool_readonly, INT, ZMOD_RW,
+	"Import the root pool read-only (no txg sync, labels untouched)");
 
 ZFS_MODULE_PARAM(zfs_livelist_condense, zfs_livelist_condense_, zthr_pause, INT,
 	ZMOD_RW, "Set the livelist condense zthr to pause");

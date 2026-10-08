@@ -182,8 +182,15 @@ rescue_divert(void)
 
 	strlcpy(note, e->rescue_root, sizeof(note));	/* a getenv() pointer dies with setenv() */
 	setenv("vfs.root.mountfrom", note, 1);
-	unsetenv("vfs.root.mountfrom.options");
-	printf("rescue: diverting to %s (acknowledged at the loader phase)\n", note);
+	setenv("vfs.root.mountfrom.options", "ro", 1);
+	/*
+	 * The card's pool imported read-only (the kernel's zfs_rootpool_readonly):
+	 * nothing is written to its labels, the rescue root stays what the
+	 * witnesses measured. The rescue is transient anyway: /tmp, /var and the
+	 * layers are memory.
+	 */
+	setenv("vfs.zfs.rootpool_readonly", "1", 1);
+	printf("rescue: diverting to %s, the pool read-only (acknowledged at the loader phase)\n", note);
 }
 
 static uint8_t
