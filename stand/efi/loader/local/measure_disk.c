@@ -31,9 +31,6 @@
 #ifndef LOADER_TRUST_GELI_PARTS
 #define	LOADER_TRUST_GELI_PARTS	""
 #endif
-#ifndef LOADER_TRUST_WITNESS_LABELS
-#define	LOADER_TRUST_WITNESS_LABELS	""
-#endif
 
 static EFI_GUID blkio_guid = BLOCK_IO_PROTOCOL;
 
@@ -286,7 +283,13 @@ measure_gpt(int argc __unused, CHAR16 *argv[] __unused)
 }
 
 /*
- * --- witnesses: name:guid:medium:digest, comma-separated (LOADER_TRUST_WITNESS_LABELS) ---
+ * --- witnesses, from loader.trust.conf ---
+ *
+ * loader.trust.inventory.witnesses names them, comma-separated; each has
+ * loader.trust.inventory.witness.<name>.guid (the GPT partition uuid),
+ * .medium and .digest (64 hex each). The conf travels in the signed
+ * manifest like pcr.expected: a rollout of a card -- every rescue push
+ * moves its labels -- is a new receipt in the conf, no rebuild.
  *
  * The medium is the sha256 of the GELI metadata (the last 512 bytes of the
  * partition's last sector): the owner's cards are dd clones with one GPT
@@ -341,11 +344,25 @@ hex_digest(const char *p, size_t n, uint8_t out[SHA256_DIGEST_LENGTH])
 	return (true);
 }
 
-/* One entry of the list; false at its end or on a malformed entry. */
+/* The leaf loader.trust.inventory.witness.<name>.<field>, or NULL. */
+static const char *
+witness_leaf(const char *name, const char *field)
+{
+	static char key[128];
+
+	snprintf(key, sizeof(key), "loader.trust.inventory.witness.%s.%s",
+	    name, field);
+	return (getenv(key));
+}
+
+/*
+ * The next name of loader.trust.inventory.witnesses and its leaves; false
+ * at the end of the list or when a leaf is missing or malformed.
+ */
 static bool
 next_witness(const char **cursor, struct witness *w)
 {
-	const char *p = *cursor, *e, *c1, *c2, *c3;
+	const char *p = *cursor, *e, *v;
 	size_t n;
 
 	while (*p == ',' || *p == ' ')
@@ -356,27 +373,20 @@ next_witness(const char **cursor, struct witness *w)
 	while (*e != '\0' && *e != ',' && *e != ' ')
 		e++;
 	*cursor = e;
-	c1 = memchr(p, ':', (size_t)(e - p));
-	if (c1 == NULL)
-		return (false);
-	c2 = memchr(c1 + 1, ':', (size_t)(e - c1 - 1));
-	if (c2 == NULL)
-		return (false);
-	n = (size_t)(c1 - p);
+	n = (size_t)(e - p);
 	if (n == 0 || n >= sizeof(w->name))
 		return (false);
 	memcpy(w->name, p, n);
 	w->name[n] = '\0';
-	n = (size_t)(c2 - c1 - 1);
-	if (n == 0 || n >= sizeof(w->guid))
+	v = witness_leaf(w->name, "guid");
+	if (v == NULL || strlen(v) == 0 || strlen(v) >= sizeof(w->guid))
 		return (false);
-	memcpy(w->guid, c1 + 1, n);
-	w->guid[n] = '\0';
-	c3 = memchr(c2 + 1, ':', (size_t)(e - c2 - 1));
-	if (c3 == NULL)
+	strlcpy(w->guid, v, sizeof(w->guid));
+	v = witness_leaf(w->name, "medium");
+	if (v == NULL || !hex_digest(v, strlen(v), w->medium))
 		return (false);
-	return (hex_digest(c2 + 1, (size_t)(c3 - c2 - 1), w->medium) &&
-	    hex_digest(c3 + 1, (size_t)(e - c3 - 1), w->digest));
+	v = witness_leaf(w->name, "digest");
+	return (v != NULL && hex_digest(v, strlen(v), w->digest));
 }
 
 /* The medium of a partition: sha256 of its GELI metadata, the last 512 bytes of the last sector. */
@@ -512,12 +522,15 @@ witness_states(struct witness ws[WITNESS_MAX], enum witness_state st[WITNESS_MAX
 	static enum witness_state cache_st[WITNESS_MAX];
 	static unsigned int cache_n;
 	static bool done;
-	const char *cursor = LOADER_TRUST_WITNESS_LABELS;
+	const char *cursor;
 	unsigned int i;
 
 	if (!done) {
 		done = true;
 		cache_n = 0;
+		cursor = getenv("loader.trust.inventory.witnesses");
+		if (cursor == NULL)
+			cursor = "";
 		while (cache_n < WITNESS_MAX &&
 		    next_witness(&cursor, &cache[cache_n])) {
 			cache_st[cache_n] = witness_state(&cache[cache_n]);

@@ -198,15 +198,17 @@ struct measurement	measure_gpt(int argc, CHAR16 *argv[]);
 /*
  * --- witnesses (measure_disk.c) ---
  * A witness is a GELI container the loader reads but never opens: the
- * rescue card, the quarantine. LOADER_TRUST_WITNESS_LABELS lists them as
- * name:guid:medium:digest, comma-separated -- the GPT partition GUID, the
- * medium (sha256 of the GELI metadata sector: two dd-cloned cards share
- * the GUID, each card init wrote its own metadata) and the sha256 elebake
- * took at the rollout (stage witness measure) over the four ZFS vdev
- * labels and the GELI metadata sector, in the ciphertext: every
- * transaction group written into the container moves it. A partition
- * found by the GUID that carries another medium is the other card: the
- * witness is absent.
+ * rescue card, the quarantine. loader.trust.inventory.witnesses names
+ * them (comma-separated); loader.trust.inventory.witness.<name>.guid,
+ * .medium and .digest carry the GPT partition GUID, the medium (sha256 of
+ * the GELI metadata sector: two dd-cloned cards share the GUID, each card
+ * init wrote its own metadata) and the sha256 elebake took at the rollout
+ * (stage witness measure) over the four ZFS vdev labels and the GELI
+ * metadata sector, in the ciphertext: every transaction group written
+ * into the container moves it. The conf travels in the signed manifest
+ * like pcr.expected -- a rollout of a card is a new receipt there, no
+ * rebuild. A partition found by the GUID that carries another medium is
+ * the other card: the witness is absent.
  * measure_witness_labels   1 iff every witness whose partition is present
  *                    hashes to its receipt; absent when no witness is
  *                    present at all
