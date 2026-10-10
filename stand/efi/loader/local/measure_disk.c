@@ -286,7 +286,14 @@ measure_gpt(int argc __unused, CHAR16 *argv[] __unused)
 }
 
 /*
- * --- witnesses: name:guid:digest, comma-separated (LOADER_TRUST_WITNESS_LABELS) ---
+ * --- witnesses: name:guid:medium:digest, comma-separated (LOADER_TRUST_WITNESS_LABELS) ---
+ *
+ * The medium is the sha256 of the GELI metadata (the last 512 bytes of the
+ * partition's last sector): the owner's cards are dd clones with one GPT
+ * uuid, but every card init wrote its own metadata, so the partition the
+ * guid finds is the witness's card only when its metadata hashes to the
+ * medium -- otherwise the other card is in the slot and the witness is
+ * absent.
  *
  * The regions elebake hashes (stage witness digest), in this order: labels
  * 0 and 1 (the first 512 KiB of the provider), labels 2 and 3 (the last
@@ -304,6 +311,7 @@ measure_gpt(int argc __unused, CHAR16 *argv[] __unused)
 struct witness {
 	char	name[24];
 	char	guid[40];
+	uint8_t	medium[SHA256_DIGEST_LENGTH];
 	uint8_t	digest[SHA256_DIGEST_LENGTH];
 };
 
@@ -337,7 +345,7 @@ hex_digest(const char *p, size_t n, uint8_t out[SHA256_DIGEST_LENGTH])
 static bool
 next_witness(const char **cursor, struct witness *w)
 {
-	const char *p = *cursor, *e, *c1, *c2;
+	const char *p = *cursor, *e, *c1, *c2, *c3;
 	size_t n;
 
 	while (*p == ',' || *p == ' ')
@@ -364,7 +372,33 @@ next_witness(const char **cursor, struct witness *w)
 		return (false);
 	memcpy(w->guid, c1 + 1, n);
 	w->guid[n] = '\0';
-	return (hex_digest(c2 + 1, (size_t)(e - c2 - 1), w->digest));
+	c3 = memchr(c2 + 1, ':', (size_t)(e - c2 - 1));
+	if (c3 == NULL)
+		return (false);
+	return (hex_digest(c2 + 1, (size_t)(c3 - c2 - 1), w->medium) &&
+	    hex_digest(c3 + 1, (size_t)(e - c3 - 1), w->digest));
+}
+
+/* The medium of a partition: sha256 of its GELI metadata, the last 512 bytes of the last sector. */
+static bool
+witness_medium(EFI_HANDLE h, uint8_t out[SHA256_DIGEST_LENGTH])
+{
+	uint32_t bsize;
+	uint64_t last;
+	uint8_t *buf;
+
+	if (!block_geometry(h, &bsize, &last) || bsize < 512)
+		return (false);
+	buf = malloc(bsize);
+	if (buf == NULL)
+		return (false);
+	if (!read_blocks(h, last, buf, bsize)) {
+		free(buf);
+		return (false);
+	}
+	measurement_sha256(buf + bsize - 512, 512, out);
+	free(buf);
+	return (true);
 }
 
 /* sha256-update with [lba, lba + blocks) of the handle; false on a read error. */
@@ -460,6 +494,10 @@ witness_state(const struct witness *w)
 
 	if (!find_partition(w->guid, &h))
 		return (WITNESS_ABSENT);
+	if (!witness_medium(h, digest))
+		return (WITNESS_DIFFER);	/* present, but not readable as the receipt describes */
+	if (memcmp(digest, w->medium, sizeof(digest)) != 0)
+		return (WITNESS_ABSENT);	/* the other card in the slot: this witness is not here */
 	if (!witness_digest(h, digest))
 		return (WITNESS_DIFFER);	/* present, but not the container the receipt describes */
 	return (memcmp(digest, w->digest, sizeof(digest)) == 0 ?
