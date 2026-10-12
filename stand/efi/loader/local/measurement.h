@@ -217,6 +217,8 @@ struct measurement	measure_gpt(int argc, CHAR16 *argv[]);
  *                    absent when the list is empty
  */
 struct measurement	measure_witness_labels(int argc, CHAR16 *argv[]);
+struct measurement	measure_witness_anchor(int argc, CHAR16 *argv[]);	/* WitnessAnchor: 1 iff the witness table of this boot equals the digest in the NV index loader.trust.tpm.witness.nv (what the production last anchored, stage witness anchor); absent without leaf, TPM, index or witnesses */
+void			diagnose_witness_anchor(int argc, CHAR16 *argv[], struct diagnosis *d);	/* witness.anchor: match, differ, absent */
 struct measurement	measure_witness_present(int argc, CHAR16 *argv[]);
 
 /*

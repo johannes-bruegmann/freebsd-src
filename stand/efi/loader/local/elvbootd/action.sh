@@ -131,6 +131,35 @@ kenv_act() {
 	done
 }
 
+# witness_anchor_act <gate> -- the production's own reading of the
+# witness anchor: the table the loader published this boot
+# (loader.trust.inventory.witnesses and the .witness.<name>.medium/.digest
+# leaves, hashed as "<name>:<medium>:<digest>\n" in that order) against the
+# NV index loader.trust.tpm.witness.nv, read here, not taken from the
+# loader's verdict. A differing index is a failed claim of this gate
+# (spooled); an index that does not read (no TPM, undefined) is logged as
+# absent. Assumes the stage names the index; without it nothing runs.
+witness_anchor_act() {
+	local idx names n have want
+	idx=$($KENV -q loader.trust.tpm.witness.nv 2>/dev/null) || return 0
+	names=$($KENV -q loader.trust.inventory.witnesses 2>/dev/null) || return 0
+	[ -n "$idx" ] && [ -n "$names" ] || return 0
+	have=$(for n in $(printf '%s' "$names" | $TR ',' ' '); do
+		printf '%s:%s:%s\n' "$n" "$($KENV -q "loader.trust.inventory.witness.$n.medium" 2>/dev/null)" "$($KENV -q "loader.trust.inventory.witness.$n.digest" 2>/dev/null)"
+	done | $OPENSSL dgst -sha256 | $SED 's/.*= //')
+	TPM2TOOLS_TCTI=device:/dev/tpm0; export TPM2TOOLS_TCTI
+	want=$($TPM2_NVREAD "$idx" 2>/dev/null | $OD -An -tx1 | $TR -d ' \n')
+	if [ -z "$want" ]; then
+		$LOGGER -t elvboot -p security.notice "witness anchor absent (index $idx does not read): the table of this boot is $have"
+	elif [ "$want" = "$have" ]; then
+		$LOGGER -t elvboot -p security.notice "witness anchor match: $have"
+	else
+		GATE_VERDICT=fail; FAILED="$FAILED witness-anchor"
+		spool_act "$1"
+		$LOGGER -t elvboot -p security.notice "witness anchor DIFFERS: the index holds $want, this boot's table is $have"
+	fi
+}
+
 # smart_anchor_act <gate> -- SHUTDOWN: what the next boot must find
 # in the shutdown index -- the NVMe's power-on hours, data units read and
 # written, the medium's letter -- written under the cap PCR's CAPPED state

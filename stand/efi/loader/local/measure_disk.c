@@ -27,6 +27,7 @@
 
 #include "geliboot.h"
 #include "measurement.h"
+#include "tpm.h"
 
 #ifndef LOADER_TRUST_GELI_PARTS
 #define	LOADER_TRUST_GELI_PARTS	""
@@ -586,6 +587,116 @@ measure_witness_present(int argc __unused, CHAR16 *argv[] __unused)
 	m.present = true;
 	m.value.byte = all ? 1 : 0;
 	return (m);
+}
+
+/*
+ * The digest of the witness table as the conf carries it: sha256 over
+ * "<name>:<medium>:<digest>\n" for every name of
+ * loader.trust.inventory.witnesses, in that order, the hex strings as
+ * published. False without a witness. elebake (stage witness anchor) and
+ * elvbootd (witness_anchor_act) compute the same bytes.
+ */
+static bool
+witness_table_digest(uint8_t out[SHA256_DIGEST_LENGTH])
+{
+	SHA256_CTX ctx;
+	const char *cursor, *p, *e, *v;
+	char name[64];
+	size_t n;
+	unsigned int count = 0;
+
+	cursor = getenv("loader.trust.inventory.witnesses");
+	if (cursor == NULL)
+		return (false);
+	SHA256_Init(&ctx);
+	p = cursor;
+	for (;;) {
+		while (*p == ',' || *p == ' ')
+			p++;
+		if (*p == '\0')
+			break;
+		e = p;
+		while (*e != '\0' && *e != ',' && *e != ' ')
+			e++;
+		n = (size_t)(e - p);
+		if (n == 0 || n >= sizeof(name))
+			return (false);
+		memcpy(name, p, n);
+		name[n] = '\0';
+		p = e;
+		SHA256_Update(&ctx, name, n);
+		SHA256_Update(&ctx, ":", 1);
+		v = witness_leaf(name, "medium");
+		if (v == NULL)
+			return (false);
+		SHA256_Update(&ctx, v, strlen(v));
+		SHA256_Update(&ctx, ":", 1);
+		v = witness_leaf(name, "digest");
+		if (v == NULL)
+			return (false);
+		SHA256_Update(&ctx, v, strlen(v));
+		SHA256_Update(&ctx, "\n", 1);
+		count++;
+	}
+	if (count == 0)
+		return (false);
+	SHA256_Final(out, &ctx);
+	return (true);
+}
+
+/*
+ * The anchor's state: the NV index loader.trust.tpm.witness.nv holds the
+ * table digest the production last wrote (stage witness anchor: under
+ * PolicyPCR of the production and the owner's passphrase as the index's
+ * auth value). 1 = the table of this boot is the anchored one; 0 = it
+ * differs (a conf rewritten on the medium, or an anchor not taken after a
+ * rollout); absent without the leaf, without a TPM, without the index or
+ * without witnesses -- a rescue on another board reports absent, never
+ * fails.
+ */
+static int
+witness_anchor_state(void)
+{
+	static int state = -2;
+	const char *v;
+	uint32_t index;
+	uint8_t have[SHA256_DIGEST_LENGTH], want[SHA256_DIGEST_LENGTH];
+
+	if (state != -2)
+		return (state);
+	state = -1;
+	v = getenv("loader.trust.tpm.witness.nv");
+	if (v == NULL || !witness_table_digest(have))
+		return (state);
+	index = (uint32_t)strtoul(v, NULL, 0);
+	if (index == 0 || !tpm_present() ||
+	    !tpm_nv_read_bytes(index, want, sizeof(want)))
+		return (state);
+	state = memcmp(have, want, sizeof(have)) == 0 ? 1 : 0;
+	return (state);
+}
+
+struct measurement
+measure_witness_anchor(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "WitnessAnchor", .type = MEAS_BYTE };
+	int st = witness_anchor_state();
+
+	if (st < 0)
+		return (m);
+	m.present = true;
+	m.value.byte = st;
+	return (m);
+}
+
+void
+diagnose_witness_anchor(int argc __unused, CHAR16 *argv[] __unused,
+    struct diagnosis *d)
+{
+	static const char *const word[] = { "absent", "differ", "match" };
+
+	d->leaf = "witness.anchor";
+	snprintf(d->text, sizeof(d->text), "%s", word[witness_anchor_state() + 1]);
 }
 
 void
