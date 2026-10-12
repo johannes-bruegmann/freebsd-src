@@ -88,6 +88,29 @@ summary_act() {
 	$LOGGER -t elvboot -p security.notice "boot summary: gates=[${gates# }] record=[${rec:-none}] tpm.key=${tpm:-none} attempts=${att:-?} custody=${custody:-none}"
 }
 
+# kenv_act -- STARTUP: the loader's kenv of this boot, kept: every
+# loader.trust.* leaf as the loader published it, under
+# $ELV_STATE/boots/<counter>.kenv with the stamp of the write -- the raw
+# material of a report over the last boots (expectation against
+# measurement, which the boot summary line does not carry). The last 200
+# boots stay. Assumes the loader published the counter (book_act's leaf).
+kenv_act() {
+	local c d f n
+	c=$($KENV -q "loader.trust.$ELV_GATE_LOADER.counter" 2>/dev/null)
+	[ -n "$c" ] || c=$($DATE -u +%Y%m%dT%H%M%SZ)
+	d="$ELV_STATE/boots"
+	$MKDIR -p "$d"
+	{
+		printf '# counter=%s at=%s\n' "$c" "$($DATE -u +%Y-%m-%dT%H:%M:%SZ)"
+		$KENV | $GREP '^loader\.trust\.'
+	} > "$d/$c.kenv"
+	n=$($FIND "$d" -type f -name '*.kenv' | $WC -l | $TR -d ' ')
+	[ "$n" -gt 200 ] || return 0
+	$FIND "$d" -type f -name '*.kenv' | $AWK -F/ '{ print $NF }' | $SORT -n | $HEAD -n $((n - 200)) | while IFS= read -r f; do
+		$RM -f "$d/$f"
+	done
+}
+
 # smart_anchor_act <gate> -- SHUTDOWN: what the next boot must find
 # in the shutdown index -- the NVMe's power-on hours, data units read and
 # written, the medium's letter -- written under the cap PCR's CAPPED state

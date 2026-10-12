@@ -299,7 +299,7 @@ keys_derive(const struct g_eli_metadata *md, const char *passphrase,
 		keys_note("%c%s:%d", g ? ',' : ':', provs[g], nfiles[g]);
 	keys_note(",%s)", ok ? (files ? "keyfiles" : "key") : "nokey");
 	if (ok)
-		keys_files_slot = files;
+		keys_files_slot = ok && keynum == 0;	/* the slot, not the material: slot 0 may take the owner's passphrase too */
 	return (ok);
 }
 

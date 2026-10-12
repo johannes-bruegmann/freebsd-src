@@ -276,7 +276,7 @@ diagnose_geli_slot(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis 
 {
 	d->leaf = "geli.slot";
 	snprintf(d->text, sizeof(d->text), "%s",
-	    !geli_open_done() ? "closed" : geli_keys_files_slot() ? "keyfiles" : "passphrase");
+	    !geli_open_done() ? "closed" : geli_keys_files_slot() ? "slot0" : "slot1");
 }
 
 struct measurement
