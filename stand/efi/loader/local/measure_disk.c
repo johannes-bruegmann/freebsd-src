@@ -317,6 +317,8 @@ struct witness {
 	char	guid[40];
 	uint8_t	medium[SHA256_DIGEST_LENGTH];
 	uint8_t	digest[SHA256_DIGEST_LENGTH];
+	uint8_t	gpt[SHA256_DIGEST_LENGTH];	/* the partition table of its disk (the .gpt leaf), when the conf carries one */
+	bool	has_gpt;
 };
 
 enum witness_state { WITNESS_ABSENT, WITNESS_MATCH, WITNESS_DIFFER };
@@ -387,7 +389,11 @@ next_witness(const char **cursor, struct witness *w)
 	if (v == NULL || !hex_digest(v, strlen(v), w->medium))
 		return (false);
 	v = witness_leaf(w->name, "digest");
-	return (v != NULL && hex_digest(v, strlen(v), w->digest));
+	if (v == NULL || !hex_digest(v, strlen(v), w->digest))
+		return (false);
+	v = witness_leaf(w->name, "gpt");
+	w->has_gpt = v != NULL && hex_digest(v, strlen(v), w->gpt);
+	return (true);
 }
 
 /* The medium of a partition: sha256 of its GELI metadata, the last 512 bytes of the last sector. */
@@ -566,6 +572,120 @@ measure_witness_labels(int argc __unused, CHAR16 *argv[] __unused)
 		return (m);
 	m.present = true;
 	m.value.byte = ok ? 1 : 0;
+	return (m);
+}
+
+/*
+ * The partition table of the disk a present witness lives on, against the
+ * .gpt leaf of its receipt: the cards differ in size and carry their own
+ * tables, so each is a witness of its own, not a term in PartitionTables
+ * (the internal disks). -1 = unreadable or no table, else 0/1.
+ */
+static int
+witness_table_match(const struct witness *w)
+{
+	EFI_HANDLE h, disk;
+	SHA256_CTX ctx;
+	uint8_t digest[SHA256_DIGEST_LENGTH];
+
+	if (!find_partition(w->guid, &h) || !find_parent(h, &disk))
+		return (-1);
+	SHA256_Init(&ctx);
+	if (!gpt_update(&ctx, disk))
+		return (-1);
+	SHA256_Final(digest, &ctx);
+	return (memcmp(digest, w->gpt, sizeof(digest)) == 0 ? 1 : 0);
+}
+
+struct measurement
+measure_witness_tables(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "WitnessTables", .type = MEAS_BYTE };
+	struct witness ws[WITNESS_MAX];
+	enum witness_state st[WITNESS_MAX];
+	unsigned int n, i, judged = 0;
+	bool ok = true;
+
+	n = witness_states(ws, st);
+	for (i = 0; i < n; i++) {
+		if (st[i] == WITNESS_ABSENT || !ws[i].has_gpt)
+			continue;
+		judged++;
+		if (witness_table_match(&ws[i]) != 1)
+			ok = false;
+	}
+	if (judged == 0)
+		return (m);
+	m.present = true;
+	m.value.byte = ok ? 1 : 0;
+	return (m);
+}
+
+void
+diagnose_witness_tables(int argc __unused, CHAR16 *argv[] __unused,
+    struct diagnosis *d)
+{
+	struct witness ws[WITNESS_MAX];
+	enum witness_state st[WITNESS_MAX];
+	unsigned int n, i;
+	size_t len = 0;
+	const char *word;
+	int r;
+
+	d->leaf = "witness.tables";
+	d->text[0] = '\0';
+	n = witness_states(ws, st);
+	for (i = 0; i < n && len < sizeof(d->text); i++) {
+		if (st[i] == WITNESS_ABSENT)
+			word = "absent";
+		else if (!ws[i].has_gpt)
+			word = "none";
+		else {
+			r = witness_table_match(&ws[i]);
+			word = r < 0 ? "unreadable" : r ? "match" : "differ";
+		}
+		len += snprintf(d->text + len, sizeof(d->text) - len, "%s%s=%s",
+		    i > 0 ? "," : "", ws[i].name, word);
+	}
+}
+
+/*
+ * The witnesses that share one slot (loader.trust.inventory.witness.slot,
+ * comma-separated names): 1 iff at least one of them is present -- the
+ * slot carries a card; 0 iff none is (an empty slot, or a card the conf
+ * does not know). Absent without the leaf.
+ */
+struct measurement
+measure_witness_slot(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "WitnessSlot", .type = MEAS_BYTE };
+	struct witness ws[WITNESS_MAX];
+	enum witness_state st[WITNESS_MAX];
+	const char *slot, *p, *e;
+	unsigned int n, i;
+	size_t k;
+	bool any = false;
+
+	slot = getenv("loader.trust.inventory.witness.slot");
+	if (slot == NULL)
+		return (m);
+	n = witness_states(ws, st);
+	p = slot;
+	while (*p != '\0') {
+		while (*p == ',' || *p == ' ')
+			p++;
+		e = p;
+		while (*e != '\0' && *e != ',' && *e != ' ')
+			e++;
+		k = (size_t)(e - p);
+		for (i = 0; i < n && k > 0; i++)
+			if (strlen(ws[i].name) == k && memcmp(ws[i].name, p, k) == 0 &&
+			    st[i] != WITNESS_ABSENT)
+				any = true;
+		p = e;
+	}
+	m.present = true;
+	m.value.byte = any ? 1 : 0;
 	return (m);
 }
 

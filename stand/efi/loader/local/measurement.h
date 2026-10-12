@@ -217,6 +217,9 @@ struct measurement	measure_gpt(int argc, CHAR16 *argv[]);
  *                    absent when the list is empty
  */
 struct measurement	measure_witness_labels(int argc, CHAR16 *argv[]);
+struct measurement	measure_witness_tables(int argc, CHAR16 *argv[]);	/* WitnessTables: 1 iff the partition table of the disk of every present witness with a .gpt leaf hashes to it; absent when none is judged */
+void			diagnose_witness_tables(int argc, CHAR16 *argv[], struct diagnosis *d);	/* witness.tables: name=match|differ|unreadable|none|absent */
+struct measurement	measure_witness_slot(int argc, CHAR16 *argv[]);	/* WitnessSlot: 1 iff at least one of loader.trust.inventory.witness.slot (names sharing a slot) is present; absent without the leaf */
 struct measurement	measure_witness_anchor(int argc, CHAR16 *argv[]);	/* WitnessAnchor: 1 iff the witness table of this boot equals the digest in the NV index loader.trust.tpm.witness.nv (what the production last anchored, stage witness anchor); absent without leaf, TPM, index or witnesses */
 void			diagnose_witness_anchor(int argc, CHAR16 *argv[], struct diagnosis *d);	/* witness.anchor: match, differ, absent */
 struct measurement	measure_witness_present(int argc, CHAR16 *argv[]);
