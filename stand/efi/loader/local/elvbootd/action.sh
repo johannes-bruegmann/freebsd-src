@@ -88,25 +88,45 @@ summary_act() {
 	$LOGGER -t elvboot -p security.notice "boot summary: gates=[${gates# }] record=[${rec:-none}] tpm.key=${tpm:-none} attempts=${att:-?} custody=${custody:-none}"
 }
 
-# kenv_act -- STARTUP: the loader's kenv of this boot, kept: every
-# loader.trust.* leaf as the loader published it, under
-# $ELV_STATE/boots/<counter>.kenv with the stamp of the write -- the raw
-# material of a report over the last boots (expectation against
-# measurement, which the boot summary line does not carry). The last 200
-# boots stay. Assumes the loader published the counter (book_act's leaf).
+# kenv_act -- the loader's kenv of this boot, kept under
+# $ELV_STATE/boots/<stamp>-<counter>.kenv: the first run of a boot
+# (STARTUP) writes it -- the header names the counter, the time and the
+# sha256 of the newest earlier snapshot, so a rewritten past breaks the
+# chain -- and every later run of the same boot (SHUTDOWN) appends the
+# session's appraisals and the spool lines since the boot under
+# '# elvbootd at=<time>'. The stamp leads the name: the counter starts
+# at 1 again when the record chain starts anew, the stamp keeps the order.
+# The 200 newest stay. Assumes the loader published the counter (book_act's
+# leaf); without it the stamp alone names the file and no later run finds it.
 kenv_act() {
-	local c d f n
+	local c d f n iso prev a since
 	c=$($KENV -q "loader.trust.$ELV_GATE_LOADER.counter" 2>/dev/null)
-	[ -n "$c" ] || c=$($DATE -u +%Y%m%dT%H%M%SZ)
 	d="$ELV_STATE/boots"
+	iso=$($DATE -u +%Y-%m-%dT%H:%M:%SZ)
 	$MKDIR -p "$d"
+	f=""
+	[ -n "$c" ] && f=$($FIND "$d" -type f -name "[0-9]*T[0-9]*Z-$c.kenv" | $SORT | $TAIL -n 1)
+	if [ -n "$f" ]; then
+		since=$($HEAD -n 1 "$f" | $SED 's/.* at=\([^ ]*\).*/\1/')
+		{
+			printf '# elvbootd at=%s\n' "$iso"
+			for a in $($FIND "$ELV_STATE" -maxdepth 1 -type f -name 'appraisal-*' | $SORT); do
+				printf '# %s\n' "${a##*/}"
+				$CAT "$a"
+			done
+			printf '# spool since %s\n' "$since"
+			[ -f "$ELV_STATE/spool" ] && $AWK -v s="$since" '$1 >= s' "$ELV_STATE/spool"
+		} >> "$f"
+		return 0
+	fi
+	prev=$($FIND "$d" -type f -name '[0-9]*T[0-9]*Z-*.kenv' | $SORT | $TAIL -n 1)
 	{
-		printf '# counter=%s at=%s\n' "$c" "$($DATE -u +%Y-%m-%dT%H:%M:%SZ)"
+		printf '# counter=%s at=%s prev=%s\n' "${c:-none}" "$iso" "${prev:+$($SHA256 -q "$prev")}"
 		$KENV | $GREP '^loader\.trust\.'
-	} > "$d/$c.kenv"
-	n=$($FIND "$d" -type f -name '*.kenv' | $WC -l | $TR -d ' ')
+	} > "$d/$($DATE -u +%Y%m%dT%H%M%SZ)-${c:-0}.kenv"
+	n=$($FIND "$d" -type f -name '[0-9]*T[0-9]*Z-*.kenv' | $WC -l | $TR -d ' ')
 	[ "$n" -gt 200 ] || return 0
-	$FIND "$d" -type f -name '*.kenv' | $AWK -F/ '{ print $NF }' | $SORT -n | $HEAD -n $((n - 200)) | while IFS= read -r f; do
+	$FIND "$d" -type f -name '[0-9]*T[0-9]*Z-*.kenv' | $AWK -F/ '{ print $NF }' | $SORT | $HEAD -n $((n - 200)) | while IFS= read -r f; do
 		$RM -f "$d/$f"
 	done
 }
