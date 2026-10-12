@@ -39,6 +39,115 @@ measure_gate_clean() {
 # diagnose_gate_clean <gate> -- the failed list as published
 diagnose_gate_clean() { $KENV -q "loader.trust.$1.failed" 2>/dev/null; }
 
+# --- the tell classes (Konzepte/tell-klassen-und-aktionen.md): each
+# measurement reads the loader's kenv and prints 1 when the tell is
+# absent, 0 when it is there, nothing when the gate it reads published
+# nothing -- a claim with expectation 1 falls exactly on the tell, and the
+# policy bound to the gate narrows (lock, freeze, courier, shutdown).
+# Every one assumes mac_bootlock keeps loader.trust.* immutable.
+
+# elv_failed_has <gate> <claim> -- 0 iff the gate's failed list names the claim
+elv_failed_has() {
+	local f
+	f=$($KENV -q "loader.trust.$1.failed" 2>/dev/null) || return 1
+	case ",$f," in *",$2,"*) return 0 ;; esac
+	return 1
+}
+
+# measure_class_identity <-> -- 1 iff no claim of class K1 (the platform's
+# identity: board, keys, origin, ACPI, PCI, images, variables, the PCR
+# bank, the soft PCR, the TPM and its key file, foreign variables) fell in
+# any gate; 0 with one fallen; absent when no gate published a failed list
+measure_class_identity() {
+	local any=0 g f c
+	for g in $($KENV 2>/dev/null | $SED -n 's/^loader\.trust\.\([a-z]*\)\.failed=.*/\1/p'); do
+		any=1
+		f=$($KENV -q "loader.trust.$g.failed" 2>/dev/null)
+		for c in BoardIdentity SecureBootKeys LoadOrigin AcpiTables PciDevices LoadedImages EfiVariables PcrBank SoftPcr TpmPresent TpmKeyfile EfiVarsForeign; do
+			case ",$f," in *",$c,"*) printf '0\n'; return 0 ;; esac
+		done
+	done
+	[ "$any" = 1 ] && printf '1\n'
+}
+# diagnose_class_identity -- every fallen K1 claim as gate:claim
+diagnose_class_identity() {
+	local g f c out=""
+	for g in $($KENV 2>/dev/null | $SED -n 's/^loader\.trust\.\([a-z]*\)\.failed=.*/\1/p'); do
+		f=$($KENV -q "loader.trust.$g.failed" 2>/dev/null)
+		for c in BoardIdentity SecureBootKeys LoadOrigin AcpiTables PciDevices LoadedImages EfiVariables PcrBank SoftPcr TpmPresent TpmKeyfile EfiVarsForeign; do
+			case ",$f," in *",$c,"*) out="$out${out:+,}$g:$c" ;; esac
+		done
+	done
+	printf '%s\n' "${out:-none}"
+}
+
+# measure_setup_factory <gate> -- 1 unless the gate (bootlock) reports
+# SecureBoot AND SetupMode fallen together: the firmware's factory state
+# (Secure Boot off, Setup Mode on), which the owner restores before the
+# data pool opens; absent when the gate published nothing
+measure_setup_factory() {
+	$KENV -q "loader.trust.$1.failed" > /dev/null 2>&1 || return 0
+	if elv_failed_has "$1" SecureBoot && elv_failed_has "$1" SetupMode; then printf '0\n'; else printf '1\n'; fi
+}
+diagnose_setup_factory() { $KENV -q "loader.trust.$1.failed" 2>/dev/null; }
+
+# measure_storage_long <gate> -- 1 iff the storage gap the gate (recordlock)
+# measured is at most four times the window loader.trust.storage.gap.max.days
+# (a month instead of a week): after so long an absence the data pool
+# stays closed until the owner looked; absent without the gap leaf or the window
+measure_storage_long() {
+	local gap max
+	gap=$($KENV -q "loader.trust.$1.storage.gap" 2>/dev/null | $SED -n 's/.*gap\.s=\([0-9]*\).*/\1/p')
+	max=$($KENV -q loader.trust.storage.gap.max.days 2>/dev/null)
+	[ -n "$gap" ] && [ -n "$max" ] || return 0
+	if [ "$gap" -gt $((4 * max * 86400)) ]; then printf '0\n'; else printf '1\n'; fi
+}
+diagnose_storage_long() { printf '%s max.days=%s\n' "$($KENV -q "loader.trust.$1.storage.gap" 2>/dev/null)" "$($KENV -q loader.trust.storage.gap.max.days 2>/dev/null)"; }
+
+# measure_smart_clone <gate> -- 1 iff the data units the NVMe read since
+# the last boot (the gate's smart.step) stay below a thousand times the
+# window loader.trust.smart.step.units.max: a disk read whole was cloned,
+# and running it on serves only the one who holds the clone; absent
+# without the step leaf or the window
+measure_smart_clone() {
+	local rd max
+	rd=$($KENV -q "loader.trust.$1.smart.step" 2>/dev/null | $SED -n 's/.*units\.read\.diff=\([0-9]*\).*/\1/p')
+	max=$($KENV -q loader.trust.smart.step.units.max 2>/dev/null)
+	[ -n "$rd" ] && [ -n "$max" ] || return 0
+	if [ "$rd" -gt $((1000 * max)) ]; then printf '0\n'; else printf '1\n'; fi
+}
+diagnose_smart_clone() { printf '%s units.max=%s\n' "$($KENV -q "loader.trust.$1.smart.step" 2>/dev/null)" "$($KENV -q loader.trust.smart.step.units.max 2>/dev/null)"; }
+
+# measure_halt_foreign <gate> -- 1 unless the gate (recordlock) reports
+# HaltQuiet fallen: passphrase attempts at our loader the owner did not
+# make -- a mark and a courier, no stop; absent when the gate published nothing
+measure_halt_foreign() {
+	$KENV -q "loader.trust.$1.failed" > /dev/null 2>&1 || return 0
+	if elv_failed_has "$1" HaltQuiet; then printf '0\n'; else printf '1\n'; fi
+}
+diagnose_halt_foreign() { printf 'count=%s sha256=%s expected=%s\n' "$($KENV -q "loader.trust.$1.halt.count" 2>/dev/null)" "$($KENV -q "loader.trust.$1.halt.sha256" 2>/dev/null)" "$($KENV -q "loader.trust.$1.halt.expected" 2>/dev/null)"; }
+
+# measure_attempts_nonzero <gate> -- 1 iff the gate (kernelpost) counted no
+# attempt beyond the owed prompts: a retyped passphrase or answer is human,
+# the next boot shows it (mark); absent without the attempts leaf
+measure_attempts_nonzero() {
+	local a
+	a=$($KENV -q "loader.trust.$1.attempts" 2>/dev/null) || return 0
+	[ -n "$a" ] || return 0
+	if [ "$a" -gt 0 ]; then printf '0\n'; else printf '1\n'; fi
+}
+diagnose_attempts_nonzero() { printf 'attempts=%s %s\n' "$($KENV -q "loader.trust.$1.attempts" 2>/dev/null)" "$($KENV -q "loader.trust.$1.time.prompt" 2>/dev/null)"; }
+
+# measure_moved_repeat <gate> -- 1 unless the gate (tellwatch) reports
+# FirmwareMoved fallen: a firmware state the chain already saw came back,
+# which is a dump played back, not chance -- freeze and courier; absent
+# when the gate published nothing
+measure_moved_repeat() {
+	$KENV -q "loader.trust.$1.failed" > /dev/null 2>&1 || return 0
+	if elv_failed_has "$1" FirmwareMoved; then printf '0\n'; else printf '1\n'; fi
+}
+diagnose_moved_repeat() { $KENV -q "loader.trust.$1.firmware.moving" 2>/dev/null; }
+
 # measure_flag_taint <gate> -- the taint bit the handover word carried (0/1),
 # only meaningful when the word verified
 measure_flag_taint() {
