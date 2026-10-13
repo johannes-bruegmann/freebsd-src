@@ -392,36 +392,6 @@ tpm_nv_counter_increment(void)
 	return (submit(&b, r, sizeof(r), &n));
 }
 
-/* Define the counter index (once): owner- and auth-writable, owner- and
- * auth-readable, no DA. The one command here that needs the owner
- * hierarchy, with the empty password of a TPM not yet provisioned: it is
- * the first provisioning's way (elebake stage tpm counter defines it
- * otherwise); whether the boot path may call it at all is the leaf
- * loader.trust.tpm.counter.define (record.c). Everything else the boot
- * path does authorizes through the index itself. */
-bool
-tpm_nv_define_counter(void)
-{
-	uint8_t c[96], r[64];
-	struct bb b = { c, 10, sizeof(c) };
-	size_t n;
-
-	put32(&b, TPM_RH_OWNER);		/* authHandle */
-	put_auth_pw(&b);
-	put16(&b, 0);				/* auth: empty */
-	/* TPM2B_NV_PUBLIC: size, then TPMS_NV_PUBLIC */
-	put16(&b, 4 + 2 + 4 + 2 + 2);
-	put32(&b, LOADER_TRUST_TPM_NV_INDEX);
-	put16(&b, TPM_ALG_SHA256);
-	put32(&b, TPMA_NV_COUNTER | TPMA_NV_OWNERWRITE | TPMA_NV_AUTHWRITE |
-	    TPMA_NV_OWNERREAD | TPMA_NV_AUTHREAD | TPMA_NV_NO_DA);
-	put16(&b, 0);				/* authPolicy: empty */
-	put16(&b, 8);				/* dataSize */
-	finish(&b, TPM_ST_SESSIONS, TPM_CC_NV_DefineSpace);
-	return (submit(&b, r, sizeof(r), &n));
-}
-
-
 /* --- entropy: the salt and the nonces of a session, from this CPU --- */
 
 /*

@@ -851,8 +851,11 @@ record_commit(uint8_t flags)
 	if (tpm_read_clock(&tc)) {
 		b.tpm_reset = tc.reset_count;
 		b.tpm_clock = tc.clock;
-		if (!tpm_nv_counter_read(&nv))
-			(void)tpm_nv_define_counter();
+		/*
+		 * The counter index is elebake's to define (stage tpm counter):
+		 * a boot path that found it missing reads nothing, the next
+		 * claim CounterStep says so, and the owner restores it.
+		 */
 		if (tpm_nv_counter_increment() && tpm_nv_counter_read(&nv))
 			b.tpm_nvcount = nv;
 	}
