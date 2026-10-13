@@ -115,16 +115,19 @@ hkdf_sha256(const uint8_t *salt, size_t slen, const uint8_t *ikm, size_t ilen,
 /*
  * The key material is NOT in the binary, and it is NOT the passphrase.
  *
- * IKM = SHA256 of GELI's first user key (geli_ikm_digest): the PBKDF2 output
- * over the passphrase and the keyfiles that geliboot computed to unlock the
- * root. Every guess at a record therefore costs an attacker exactly what a
+ * IKM = SHA256 over every GELI user key of the boot, in canonical order
+ * (geli_ikm_digest): the PBKDF2 output over the passphrase and the keyfiles
+ * that geliboot computed to unlock the roots. Every guess at a record
+ * therefore costs an attacker exactly what a
  * guess at GELI costs -- the record is never the cheaper way to the
  * passphrase. Optionally the BOOT ANSWER is appended: a second secret from
  * the owner's head, asked once per boot in the KERNEL phase when loader.conf
  * says elvboot_answer_prompt="YES", stored nowhere -- not even hashed. With
  * it a record proves the PAIR (passphrase, answer); a passphrase that was
- * observed opens GELI but not the record, and a wrong answer makes the
- * record invalid without saying which of the two was wrong.
+ * observed opens GELI but not the record. A record that does not verify
+ * is asked for the answer once more (a slip is human) in words that name
+ * neither secret -- the line says "record", never "answer" -- and then
+ * the chain starts anew; nothing else tells which of the two moved.
  *
  * Salt = LOADER_TRUST_RECORD_SALT (site.mk): 32 random bytes compiled into
  * the loader on the boot medium. We do not rely on its secrecy, but it
@@ -249,7 +252,7 @@ answer_retry(void)
 	size_t n;
 
 	answer_retries++;
-	printf("the previous record does not verify under this answer\n");
+	printf("the previous record does not verify\n");
 	printf("\nBoot answer, once more: ");
 	readsecret(answer, sizeof(answer));
 	printf("\n");
