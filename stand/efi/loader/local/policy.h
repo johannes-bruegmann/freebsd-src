@@ -266,4 +266,7 @@ void	local_run(enum phase, int argc, CHAR16 *argv[]);
 /* The KERNEL phase from the exec path, which has no argv of its own. */
 void	local_run_kernel(void);
 
+/* True while the KERNEL phase runs (the dialog's phase). */
+bool	policy_in_kernel(void);
+
 #endif /* _LOCAL_POLICY_H_ */

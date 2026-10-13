@@ -308,6 +308,15 @@ rescue_keyfile_load(void)
 	}
 }
 
+static bool in_kernel;
+
+/* True while the KERNEL phase runs: the providers that need the dialog run it there, nowhere earlier. */
+bool
+policy_in_kernel(void)
+{
+	return (in_kernel);
+}
+
 void
 local_run(enum phase ph, int argc, CHAR16 *argv[])
 {
@@ -315,6 +324,7 @@ local_run(enum phase ph, int argc, CHAR16 *argv[])
 	enum phase post = post_of(ph);
 
 	evidence_args(argc, argv);
+	in_kernel = ph == PHASE_KERNEL;
 	if (ph == PHASE_LOADER)
 		trust_conf_preload();
 	if (ph == PHASE_KERNEL)

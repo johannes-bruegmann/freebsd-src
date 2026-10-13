@@ -39,10 +39,6 @@
 
 #include <crypto/sha2/sha256.h>
 
-#ifndef LOADER_TRUST_TPM_NV_INDEX
-#define	LOADER_TRUST_TPM_NV_INDEX	0x01c10e1fu	/* owner range, "elv" */
-#endif
-
 struct tpm_clock {
 	uint64_t	clock;		/* ms, monotonic, persisted */
 	uint32_t	reset_count;	/* TPM resets (power cycles) */
@@ -55,8 +51,8 @@ bool	tpm_read_clock(struct tpm_clock *);
 bool	tpm_read_lockout(uint32_t *failed, uint32_t *max, uint32_t *interval);	/* the DA state: failed tries, the limit, the recovery interval */
 bool	tpm_parse_pcrs(const char *list, uint32_t *mask);		/* "0,2,7" -> bits */
 bool	tpm_pcr_bank(uint32_t mask, uint8_t out[static SHA256_DIGEST_LENGTH]);	/* sha256 over the selected PCRs */
-bool	tpm_nv_counter_read(uint64_t *);
-bool	tpm_nv_counter_increment(void);
+bool	tpm_nv_counter_read(uint32_t index, uint64_t *);	/* the per-boot counter: loader.trust.tpm.record.nv */
+bool	tpm_nv_counter_increment(uint32_t index);
 /* The storage key the sessions are salted to: its name's digest (baseline). */
 bool	tpm_key_digest(uint32_t keyhandle, uint8_t out[static SHA256_DIGEST_LENGTH]);
 

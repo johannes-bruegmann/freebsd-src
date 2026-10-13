@@ -20,6 +20,8 @@
 #include "clock.h"
 #include "evidence.h"
 #include "record.h"		/* record_answer_retries */
+#include "policy.h"		/* policy_in_kernel */
+#include "geli_open.h"		/* geli_open_ensure */
 
 #ifdef LOADER_TRUST_TIME_BOOT_MAX_MS
 struct measurement
@@ -106,9 +108,13 @@ measure_attempts(int argc __unused, CHAR16 *argv[] __unused)
 {
 	struct measurement m = { .name = "Attempts", .type = MEAS_BYTE,
 	    .present = true };
-	const struct evidence *e = evidence();
-	unsigned int n = e->attempts, owed = 2 + e->prompted + record_answer_retries();
+	const struct evidence *e;
+	unsigned int n, owed;
 
+	if (policy_in_kernel())
+		geli_open_ensure();	/* the attempts are the dialog's: it must have run */
+	e = evidence();
+	n = e->attempts; owed = 2 + e->prompted + record_answer_retries();
 	n = n > owed ? n - owed : 0;
 	m.value.byte = n > 255 ? 255 : n;
 	return (m);

@@ -31,6 +31,7 @@
 #include <efilib.h>			/* RS (reset), delay */
 
 #include <crypto/sha2/sha256.h>
+#include <geom/eli/pkcs5v2.h>		/* the unlock passphrase, stretched */
 
 #include "measurement.h"
 #include "claim.h"
@@ -498,9 +499,10 @@ action_confirm(const struct appraisal *a)
 /*
  * The informed decision: a gate fell, the owner says "I know, go on".
  * Reports which claims failed, then asks for the one passphrase the
- * loader still holds a hash of (LOADER_TRUST_UNLOCK_SECRET, site.mk):
- * three tries, then the boot halts. The hash opens nothing and tells no
- * second role apart -- that is why it may live in the binary.
+ * loader still holds a hash of (LOADER_TRUST_UNLOCK_SECRET, site.mk:
+ * PBKDF2 under the record salt, unlock_owner): three tries, then the
+ * boot halts. The hash opens nothing and tells no second role apart --
+ * that is why it may live in the binary.
  * Without a hash compiled in the action reports and continues,
  * so an unprovisioned build cannot brick. Bind it where a deviation is
  * worth a decision: the chain on the medium after a boot from the
@@ -513,21 +515,44 @@ action_confirm(const struct appraisal *a)
  * the owner answered; false only when no hash is compiled in -- the
  * caller decides what an unprovisioned build does with that.
  */
+/*
+ * The unlock passphrase is compared as PBKDF2-HMAC-SHA256 over the first
+ * eight bytes of the record salt, UNLOCK_ITERATIONS rounds, 32 bytes, in
+ * hex (what elebake stage baseline prompt derives with openssl): a card
+ * thief with the binary faces the rounds, not a bare SHA256. Without the
+ * salt there is no unlock hash to compare.
+ */
+#define	UNLOCK_ITERATIONS	100000
+#define	UNLOCK_SALT_LEN		8
+
 static bool
 unlock_owner(const struct appraisal *a)
 {
-#ifndef LOADER_TRUST_UNLOCK_SECRET
+#if !defined(LOADER_TRUST_UNLOCK_SECRET) || !defined(LOADER_TRUST_RECORD_SALT)
 	return (false);
 #else
+	static const char salt[] = LOADER_TRUST_RECORD_SALT;
+	static const char hx[] = "0123456789abcdef";
 	char got[128], hash[2 * SHA256_DIGEST_LENGTH + 1];
+	uint8_t key[SHA256_DIGEST_LENGTH];
+	size_t i;
 	int tries;
 
+	if (strlen(salt) < UNLOCK_SALT_LEN)
+		return (false);
 	for (tries = 0; tries < 3; tries++) {
 		printf("%s: unlock passphrase: ", a->gate->name);
 		readsecret(got, sizeof(got));
 		printf("\n");
-		sha256_hex(got, strlen(got), hash);
+		pkcs5v2_genkey_raw(key, sizeof(key), (const uint8_t *)salt, UNLOCK_SALT_LEN,
+		    (const uint8_t *)got, strlen(got), UNLOCK_ITERATIONS);
 		explicit_bzero(got, sizeof(got));
+		for (i = 0; i < sizeof(key); i++) {
+			hash[2 * i] = hx[key[i] >> 4];
+			hash[2 * i + 1] = hx[key[i] & 0x0f];
+		}
+		hash[2 * i] = '\0';
+		explicit_bzero(key, sizeof(key));
 		if (strlen(hash) == strlen(LOADER_TRUST_UNLOCK_SECRET) &&
 		    ct_equal(hash, LOADER_TRUST_UNLOCK_SECRET, strlen(hash))) {
 			explicit_bzero(hash, sizeof(hash));

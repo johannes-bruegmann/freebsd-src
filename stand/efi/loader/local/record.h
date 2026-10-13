@@ -152,6 +152,7 @@ void		 record_geli_fingerprint(char out[9]);
 /* Seal and write this boot's record; append the link to the medium. */
 bool	record_commit(uint8_t flags);
 void	record_cap(void);			/* the cap PCR extended once, at the end of every KERNEL phase */
+bool	record_counter_index(uint32_t *out);	/* loader.trust.tpm.record.nv: the per-boot counter index, or none */
 
 /* Derived-key helper of the record itself (keys from the passphrase). */
 void	record_hmac(const char *purpose, const void *msg, size_t len,

@@ -510,6 +510,15 @@ const uint8_t record_cap_digest[SHA256_DIGEST_LENGTH] = {
 	0x5b, 0x81, 0x7e, 0xe5, 0x57, 0xa7, 0x0e, 0x8f
 };
 
+static bool	leaf_u32(const char *name, uint32_t *out);
+
+/* The per-boot counter index the record steps: loader.trust.tpm.record.nv, or no counter. */
+bool
+record_counter_index(uint32_t *out)
+{
+	return (leaf_u32("loader.trust.tpm.record.nv", out));
+}
+
 static bool
 leaf_u32(const char *name, uint32_t *out)
 {
@@ -842,6 +851,7 @@ record_commit(uint8_t flags)
 	uint8_t sealed[RECORD_SEALED_LEN], msg[SHA256_DIGEST_LENGTH +
 	    sizeof(struct record_body)];
 	uint64_t nv = 0;
+	uint32_t cidx;
 	bool ok;
 
 	if (!record_secret_present())
@@ -860,11 +870,13 @@ record_commit(uint8_t flags)
 		b.tpm_reset = tc.reset_count;
 		b.tpm_clock = tc.clock;
 		/*
-		 * The counter index is elebake's to define (stage tpm counter):
-		 * a boot path that found it missing reads nothing, the next
-		 * claim CounterStep says so, and the owner restores it.
+		 * The counter index is elebake's to define (stage tpm counter)
+		 * and the leaf's to name: a boot path without the leaf or with
+		 * the index missing reads nothing, the next claim CounterStep
+		 * says so, and the owner restores it.
 		 */
-		if (tpm_nv_counter_increment() && tpm_nv_counter_read(&nv))
+		if (record_counter_index(&cidx) && tpm_nv_counter_increment(cidx) &&
+		    tpm_nv_counter_read(cidx, &nv))
 			b.tpm_nvcount = nv;
 	}
 	if (nvme_smart(&ns)) {

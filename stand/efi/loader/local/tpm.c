@@ -371,22 +371,22 @@ tpm_pcr_bank(uint32_t mask, uint8_t out[static SHA256_DIGEST_LENGTH])
 	return (true);
 }
 
-/* Our per-boot counter index. */
+/* The per-boot counter index (loader.trust.tpm.record.nv, record.c reads the leaf). */
 bool
-tpm_nv_counter_read(uint64_t *out)
+tpm_nv_counter_read(uint32_t index, uint64_t *out)
 {
-	return (tpm_nv_index_read(LOADER_TRUST_TPM_NV_INDEX, out));
+	return (tpm_nv_index_read(index, out));
 }
 
 bool
-tpm_nv_counter_increment(void)
+tpm_nv_counter_increment(uint32_t index)
 {
 	uint8_t c[64], r[64];
 	struct bb b = { c, 10, sizeof(c) };
 	size_t n;
 
-	put32(&b, LOADER_TRUST_TPM_NV_INDEX);	/* authHandle: the index (AUTHWRITE, empty auth) */
-	put32(&b, LOADER_TRUST_TPM_NV_INDEX);
+	put32(&b, index);			/* authHandle: the index (AUTHWRITE, empty auth) */
+	put32(&b, index);
 	put_auth_pw(&b);
 	finish(&b, TPM_ST_SESSIONS, TPM_CC_NV_Increment);
 	return (submit(&b, r, sizeof(r), &n));

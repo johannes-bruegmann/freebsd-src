@@ -34,6 +34,7 @@
 #include "geli_keys.h"
 #include "geli_open.h"
 #include "nvme.h"
+#include "policy.h"			/* policy_in_kernel */
 
 struct measurement
 measure_record(int argc __unused, CHAR16 *argv[] __unused)
@@ -64,6 +65,7 @@ measure_counter_step(int argc __unused, CHAR16 *argv[] __unused)
 	struct nvme_smart ns;
 	uint64_t nv;
 	bool any = false, ok = true;
+	uint32_t cidx;
 
 	if (!rs->valid)
 		return (m);
@@ -73,7 +75,8 @@ measure_counter_step(int argc __unused, CHAR16 *argv[] __unused)
 			ok = false;
 		if (tc.clock < rs->prev.tpm_clock)
 			ok = false;
-		if (tpm_nv_counter_read(&nv) && nv != rs->prev.tpm_nvcount)
+		if (record_counter_index(&cidx) && tpm_nv_counter_read(cidx, &nv) &&
+		    nv != rs->prev.tpm_nvcount)
 			ok = false;
 	}
 	if (nvme_smart(&ns)) {
@@ -298,6 +301,8 @@ measure_geli_slot(int argc __unused, CHAR16 *argv[] __unused)
 {
 	struct measurement m = { .name = "GeliSlot", .type = MEAS_BYTE };
 
+	if (policy_in_kernel())
+		geli_open_ensure();	/* bound before the first record claim: the dialog runs here */
 	if (!geli_open_done())
 		return (m);
 	m.present = true;
@@ -317,8 +322,11 @@ struct measurement
 measure_tpm_keyfile(int argc __unused, CHAR16 *argv[] __unused)
 {
 	struct measurement m = { .name = "TpmKeyfile", .type = MEAS_BYTE };
-	const struct tpm_keyfile_state *s = tpm_keyfile_state();
+	const struct tpm_keyfile_state *s;
 
+	if (policy_in_kernel())
+		geli_open_ensure();	/* bound before the first record claim: the dialog runs here */
+	s = tpm_keyfile_state();
 	if (!s->configured)
 		return (m);
 	m.present = true;
@@ -770,11 +778,13 @@ diagnose_counter_step(int argc __unused, CHAR16 *argv[] __unused,
 	struct tpm_clock tc;
 	struct nvme_smart ns;
 	uint64_t nv = 0;
+	uint32_t cidx;
 	char t[128], n[64];
 
 	d->leaf = "anchors";
 	if (tpm_read_clock(&tc)) {
-		(void)tpm_nv_counter_read(&nv);
+		if (record_counter_index(&cidx))
+			(void)tpm_nv_counter_read(cidx, &nv);
 		/* now/previous each; the clock with the TPM's own safe flag */
 		snprintf(t, sizeof(t),
 		    "tpm.reset=%u/%llu,tpm.nv=%llu/%llu,tpm.clock=%llu/%llu,safe=%u",
