@@ -39,7 +39,11 @@
  * opening; the owner object is sealed against its value at seal time (a
  * counter never reads 0 and never goes back), so either raise kills it --
  * in the TPM, without a script, and finally: pinCount would be an
- * owner-writable cell, a counter is not. Nothing on the boot path uses
+ * owner-writable cell, a counter is not. The counter's increment needs
+ * no auth, so root in the running system can raise it and kill the
+ * owner object: a denial of service, accepted -- root can keep the
+ * machine from booting in simpler ways, no secret is lost, and the way
+ * back is the one below. Nothing on the boot path uses
  * the owner hierarchy: PolicyNV and the reads authorize through the index
  * itself (AUTHREAD, empty index auth), so the owner and lockout
  * hierarchies carry a password the machine never holds (elebake stage tpm
