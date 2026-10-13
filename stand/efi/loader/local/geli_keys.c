@@ -45,8 +45,13 @@
  * boot for hours (its metadata is not authenticated before this point). */
 #define	GELI_ITERATIONS_MAX	(1 << 24)
 
+#include <disk.h>
+#include <efi.h>
+#include <efilib.h>
+
 #include "geliboot.h"
 #include "geli_keys.h"
+#include "evidence.h"			/* the rescue bit: the card is tasted there */
 
 #define	KEYS_DISKS	8		/* disk0 .. disk7 */
 
@@ -313,6 +318,22 @@ keys_derive(const struct g_eli_metadata *md, const char *passphrase,
 	return (ok);
 }
 
+/* True iff the firmware's Block I/O calls disk<unit>'s medium removable (or the disk is unknown). */
+static bool
+keys_disk_removable(int unit)
+{
+	struct disk_devdesc dd;
+	pdinfo_t *pd;
+
+	memset(&dd, 0, sizeof(dd));
+	dd.dd.d_dev = &efipart_hddev;
+	dd.dd.d_unit = unit;
+	pd = efiblk_get_pdinfo(&dd.dd);
+	if (pd == NULL || pd->pd_blkio == NULL || pd->pd_blkio->Media == NULL)
+		return (true);
+	return (pd->pd_blkio->Media->RemovableMedia);
+}
+
 static int
 keys_partition(void *arg, const char *partname __unused,
     const struct ptable_entry *part)
@@ -359,6 +380,17 @@ geli_keys_prepare(const char *passphrase, bool keyfiles_only)
 	c.passphrase = passphrase;
 	c.keyfiles_only = keyfiles_only;
 	for (unit = 0; unit < KEYS_DISKS; unit++) {
+		/*
+		 * A removable medium is not tasted: the owner's disks are
+		 * fixed, no key file set opens anything else (a planted
+		 * provider would otherwise cost its PBKDF2 and could not
+		 * open anyway). On the rescue way the card itself must open,
+		 * so there every disk is tasted.
+		 */
+		if (!evidence()->rescue && keys_disk_removable(unit)) {
+			keys_note("%sdisk%d:removable", keys_seen[0] ? ";" : "", unit);
+			continue;
+		}
 		snprintf(devname, sizeof(devname), "disk%d:", unit);
 		c.fd = open(devname, O_RDONLY);
 		if (c.fd < 0)

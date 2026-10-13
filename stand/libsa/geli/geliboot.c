@@ -102,16 +102,34 @@ geli_add_key(geli_ukey key)
 	}
 }
 
+/*
+ * The digest over every saved user key, in the order of the key bytes
+ * themselves -- the same keys give the same digest whatever order the
+ * firmware enumerated the disks in. A disk that is missing changes it:
+ * the chain starts anew, which the next boot reports. 0 without a key.
+ */
 int
 geli_ikm_digest(u_char out[32])
 {
 	SHA256_CTX ctx;
+	geli_ukey sorted[GELI_MAX_KEYS], tmp;
+	unsigned int i, j;
 
 	if (nsaved_keys == 0)
 		return (0);
+	memcpy(sorted, saved_keys, nsaved_keys * sizeof(geli_ukey));
+	for (i = 1; i < nsaved_keys; i++)
+		for (j = i; j > 0 && memcmp(sorted[j - 1], sorted[j], G_ELI_USERKEYLEN) > 0; j--) {
+			memcpy(tmp, sorted[j], G_ELI_USERKEYLEN);
+			memcpy(sorted[j], sorted[j - 1], G_ELI_USERKEYLEN);
+			memcpy(sorted[j - 1], tmp, G_ELI_USERKEYLEN);
+		}
 	SHA256_Init(&ctx);
-	SHA256_Update(&ctx, saved_keys[0], G_ELI_USERKEYLEN);
+	for (i = 0; i < nsaved_keys; i++)
+		SHA256_Update(&ctx, sorted[i], G_ELI_USERKEYLEN);
 	SHA256_Final(out, &ctx);
+	explicit_bzero(sorted, sizeof(sorted));
+	explicit_bzero(tmp, sizeof(tmp));
 	return (1);
 }
 
