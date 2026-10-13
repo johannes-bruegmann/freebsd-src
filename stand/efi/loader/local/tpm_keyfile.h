@@ -63,8 +63,10 @@
  * duress.count.sealed (its value at seal time, 16 hex characters as
  * tpm2_nvread prints them), decoy.providers (nda1p1), decoy.root (read by
  * policy.c). The baseline LOADER_TRUST_TPM_KEY_DIGEST pins the storage
- * key; without it the key is used unverified and the diagnosis says so;
- * the digest is published as loader.trust.tpm.key.sha256 to be learned.
+ * key (stage tpm key prints it at provisioning): without it the state is
+ * incomplete and nothing is tried; a delivered key whose name differs is
+ * refused, and verified in the diagnosis means the names matched. The
+ * digest is published as loader.trust.tpm.key.sha256 for the record.
  * A leaf that does not parse, a TPM that refuses, a provider that cannot
  * take the file: the claim TpmKeyfile measures 0 and the diagnosis says
  * why; no leaf at all: the claim is absent. The diagnosis names the second
@@ -86,7 +88,7 @@
 struct tpm_keyfile_state {
 	bool		 configured;	/* at least one leaf is set */
 	bool		 unsealed;	/* the TPM released the bytes */
-	bool		 verified;	/* ... under the storage key of the baseline */
+	bool		 verified;	/* the storage key's name equals the baseline */
 	unsigned int	 providers;	/* providers configured (of the root that opened) */
 	unsigned int	 added;		/* ... that got the key file */
 	const char	*reason;	/* what happened, for the diagnosis */

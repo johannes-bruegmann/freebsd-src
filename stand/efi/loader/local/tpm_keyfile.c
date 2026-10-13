@@ -26,6 +26,7 @@
 
 void	delay(int usecs);		/* libefi/delay.c, undeclared upstream */
 #include "evidence.h"
+#include "record.h"		/* ct_equal */
 
 #define	TPM_KEYFILE_MAX		128	/* a sealed blob is at most 128 bytes */
 #define	TPM_KEYFILE_PROVLEN	16
@@ -221,7 +222,7 @@ tpm_keyfile_prepare(const char *passphrase)
 	const char *sealed = getenv("loader.trust.tpm.duress.count.sealed");
 	const char *dp = getenv("loader.trust.tpm.decoy.providers");
 	uint8_t secret[TPM_KEYFILE_MAX], auth[SHA256_DIGEST_LENGTH];
-	uint8_t kd[SHA256_DIGEST_LENGTH], *kdp = NULL;
+	uint8_t kd[SHA256_DIGEST_LENGTH], base[SHA256_DIGEST_LENGTH], *kdp = NULL;
 	uint8_t sealed8[8];
 	char h1[16];
 	const char *h2;
@@ -289,12 +290,28 @@ tpm_keyfile_prepare(const char *passphrase)
 		return;
 	}
 	read_indices(cntindex);
-	if (tpm_key_digest(keyhandle, kd) && !evidence()->silence)
-		hex_publish("loader.trust.tpm.key.sha256", kd, sizeof(kd));
-	if (key_digest_baseline(kd)) {
-		kdp = kd;
-		st.verified = true;
+	/*
+	 * The storage key the sessions are salted to must be the one the
+	 * baseline names: without the baseline nothing is tried (a session
+	 * to a key the firmware chose would hand it the salt and an offline
+	 * oracle on the passphrase); with it, only a key whose name matches.
+	 */
+	if (!key_digest_baseline(base)) {
+		st.reason = "incomplete: no storage key baseline (LOADER_TRUST_TPM_KEY_DIGEST, stage tpm key)";
+		return;
 	}
+	if (!tpm_key_digest(keyhandle, kd)) {
+		st.reason = "storage key unread";
+		return;
+	}
+	if (!evidence()->silence)
+		hex_publish("loader.trust.tpm.key.sha256", kd, sizeof(kd));
+	if (!ct_equal(kd, base, sizeof(kd))) {
+		st.reason = "storage key is not the one in the baseline";
+		return;
+	}
+	st.verified = true;
+	kdp = base;
 	/* the auth value: SHA256 of the line, what tpm2_create -p and
 	 * tpm2_nvdefine -p took (elebake stage tpm seal, stage tpm duress) */
 	SHA256_Init(&ctx);
