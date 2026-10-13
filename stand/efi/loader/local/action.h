@@ -68,12 +68,6 @@
  *               (an epoch): the dead man's switch against a forgotten
  *               baseline
  * single_act    RB_SINGLE: the kernel stops in single user for inspection
- * divert_act    boot the rescue root instead (vfs.root.mountfrom from
- *               loader.trust.<gate>.rescue); the KERNEL stays the verified
- *               one from the boot medium, GELI of the production root is
- *               never attached
- * nextboot_act  write an NVRAM one-shot that makes the NEXT boot divert,
- *               then reboot
  * handover_act  compute the handover word: HMAC over the ledger digest, the
  *               record counter and the duress/taint bits with the
  *               compiled-in WORD secret (record.h), published as
@@ -126,9 +120,7 @@ extern const struct action	reveal_act;
 extern const struct action	taint_act;
 extern const struct action	expire_act;
 extern const struct action	single_act;
-extern const struct action	divert_act;
 extern const struct action	offer_act;
-extern const struct action	nextboot_act;
 extern const struct action	handover_act;
 extern const struct action	halt_act;
 extern const struct action	panic_act;

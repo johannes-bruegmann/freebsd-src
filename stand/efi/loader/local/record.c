@@ -46,9 +46,14 @@ static EFI_GUID elv_guid = { 0xe1b00747, 0x5e1f, 0x4c0d,
     { 0x9a, 0x0e, 0x00, 0x00, 0x00, 0xe1, 0xb0, 0x07 } };
 
 #define	RECORD_VAR	"ElvRecord"
-#define	NEXTBOOT_VAR	"ElvNextBoot"
-#define	NV_ATTRS	(EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS | \
-			 EFI_VARIABLE_RUNTIME_ACCESS)
+/*
+ * Boot-service variables, never runtime ones: the firmware refuses every
+ * read and write from the running system, so root there can neither roll
+ * the record back nor delete it -- the anchors would have told, the
+ * attribute prevents. Nothing in the userland reads them (the chain file
+ * on the medium is the owner's copy).
+ */
+#define	NV_ATTRS	(EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS)
 
 static struct record_state S;
 static bool loaded;
@@ -896,25 +901,4 @@ record_commit(uint8_t flags)
 
 /* ---------------------------------------------------------- nextboot */
 
-bool
-record_nextboot_get(char *buf, size_t sz)
-{
-	size_t len = sz - 1;
 
-	if (!record_var_get(NEXTBOOT_VAR, buf, &len))
-		return (false);
-	buf[len] = '\0';
-	return (buf[0] != '\0');
-}
-
-void
-record_nextboot_set(const char *root)
-{
-	(void)record_var_set(NEXTBOOT_VAR, root, strlen(root));
-}
-
-void
-record_nextboot_clear(void)
-{
-	(void)efi_delenv(&elv_guid, NEXTBOOT_VAR);
-}

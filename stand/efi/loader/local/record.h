@@ -178,9 +178,5 @@ bool	record_medium_append(const char *name, const void *buf, size_t len);
 bool	record_var_set(const char *name, const void *buf, size_t len);
 bool	record_var_get(const char *name, void *buf, size_t *len);
 
-/* The one-shot NVRAM note nextboot_act leaves and divert honours. */
-bool	record_nextboot_get(char *buf, size_t sz);
-void	record_nextboot_set(const char *root);
-void	record_nextboot_clear(void);
 
 #endif /* _LOCAL_RECORD_H_ */

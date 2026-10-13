@@ -562,8 +562,8 @@ action_unlock(const struct appraisal *a)
  * then the owner's acknowledgement (unlock_owner: leaving the silent boot
  * is acknowledged like every other deviation, the passphrase proves the
  * owner of the machine, not the holder of the card), then the divert:
- * vfs.root.mountfrom from loader.trust.<gate>.rescue (the same leaf
- * divert_act reads; a fixed target, no free text, so the measured kernel
+ * vfs.root.mountfrom from loader.trust.<gate>.rescue (a fixed target, no
+ * free text and no variable from the running system, so the measured kernel
  * boots nothing but the rescue root) -- set at the END of the kernel phase
  * like the decoy's (policy.c, rescue_divert): the Lua side sets
  * vfs.root.mountfrom from loader.conf after this phase and would undo it
@@ -625,7 +625,6 @@ action_offer(const struct appraisal *a)
 		evidence_set_rescue_keyfile(file, type);
 	}
 	evidence_set_rescue(note);
-	record_nextboot_clear();
 	printf("%s: rescue boot acknowledged -- %s at the kernel phase, the TPM is not asked\n",
 	    a->gate->name, note);
 }
@@ -727,42 +726,6 @@ action_single(const struct appraisal *a __unused)
 }
 
 /*
- * Boot the rescue root instead of the production one: vfs.root.mountfrom
- * from loader.trust.<gate>.rescue (e.g. zfs:zcard/ROOT/rescue). The kernel
- * and modules stay the verified ones already loaded from the boot medium;
- * the production root's GELI is never attached.
- */
-static void
-action_divert(const struct appraisal *a)
-{
-	const char *root = kenv(a, "rescue");
-	char note[128];
-
-	/* Own copy: a getenv() pointer is dead after setenv()/unsetenv(). */
-	if (root != NULL)
-		strlcpy(note, root, sizeof(note));
-	else if (!record_nextboot_get(note, sizeof(note)))
-		return;
-	setenv("vfs.root.mountfrom", note, 1);
-	unsetenv("vfs.root.mountfrom.options");
-	record_nextboot_clear();
-	printf("%s: diverting to %s\n", a->gate->name, note);
-}
-
-/* Leave the one-shot divert note for the NEXT boot, then reboot. */
-static void
-action_nextboot(const struct appraisal *a)
-{
-	const char *root = kenv(a, "rescue");
-
-	if (root == NULL)
-		return;
-	record_nextboot_set(root);
-	RS->ResetSystem(EfiResetCold, EFI_SUCCESS, 0, NULL);
-	halt_boot("reboot failed");
-}
-
-/*
  * The handover word: HMAC(HMAC(word secret, "handover"),
  * "<ledger hex>|<counter>|<flags>"). earlboot recomputes it from the
  * same inputs it can see (the published ledger and counter) plus the flags
@@ -846,9 +809,7 @@ ACTION_DEFINE(reveal,   action_reveal);
 ACTION_DEFINE(taint,    action_taint);
 ACTION_DEFINE(expire,   action_expire);
 ACTION_DEFINE(single,   action_single);
-ACTION_DEFINE(divert,   action_divert);
 ACTION_DEFINE(offer,    action_offer);
-ACTION_DEFINE(nextboot, action_nextboot);
 ACTION_DEFINE(handover, action_handover);
 ACTION_DEFINE(halt,     action_halt);
 ACTION_DEFINE(panic,    action_panic);
