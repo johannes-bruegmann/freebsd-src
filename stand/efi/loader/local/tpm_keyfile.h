@@ -30,9 +30,10 @@
  *   duress (duress): PolicySecret(duress.nv, duress passphrase), PolicyPCR
  *                    -> the decoy root's key file (decoy.providers)
  *
- * duress.nv is a TPM_NT_PIN_PASS index (pinLimit 1) whose authValue is
- * the duress passphrase: the TPM itself counts the one successful
- * PolicySecret, and the duress object is spent. The second index,
+ * duress.nv is a TPM_NT_PIN_PASS index (pinLimit 0xffffffff: the duress
+ * way is repeatable, pinCount counts every passage) whose authValue is
+ * the duress passphrase: the TPM itself counts each successful
+ * PolicySecret. The second index,
  * duress.count.nv, is an ordinary counter: earlboot raises it for a boot
  * answer of the coercion class, the loader raises it after a duress
  * opening; the owner object is sealed against its value at seal time (a
@@ -66,9 +67,12 @@
  * the digest is published as loader.trust.tpm.key.sha256 to be learned.
  * A leaf that does not parse, a TPM that refuses, a provider that cannot
  * take the file: the claim TpmKeyfile measures 0 and the diagnosis says
- * why; no leaf at all: the claim is absent. The diagnosis names the two
- * indices' state (duress.pin=<count>/<limit>, duress.count=<now>/<sealed>)
- * and never which object answered.
+ * why; no leaf at all: the claim is absent. The diagnosis names the second
+ * counter's state (duress.count=<now>/<sealed>; the PIN index reads only
+ * with the owner password, elebake stage tpm status shows it) and never
+ * which object answered. Known gap: the duress boot raises duress.count.nv
+ * in five attempts with read-back; stays it below after them, the seal of
+ * slot 0 is alive and only that diagnosis of the next owner boot says so.
  *
  * Not a catalog: internal to the local layer.
  */
@@ -93,6 +97,7 @@ struct tpm_keyfile_state {
 
 /* One attempt with this passphrase; once the file is placed, a no-op. */
 void	tpm_keyfile_prepare(const char *passphrase);
+void	tpm_keyfile_wipe(void);			/* zeros over every placed key file: a boot that halts */
 const struct tpm_keyfile_state *tpm_keyfile_state(void);
 
 #endif /* _LOCAL_TPM_KEYFILE_H_ */

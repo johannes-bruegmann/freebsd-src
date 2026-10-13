@@ -161,6 +161,40 @@ measure_tpm(int argc __unused, CHAR16 *argv[] __unused)
 	return (m);
 }
 
+/*
+ * LockoutQuiet: 1 iff the TPM counted no failed authorization since its
+ * recovery interval last ran out -- nobody worked at objects with
+ * dictionary-attack protection; 0 with a count; absent without a TPM.
+ * The dialog's own wrong lines do not count (the owner's objects carry
+ * noDA): this is the trace of a hand elsewhere, and of a lockout that
+ * would also close the duress object's way.
+ */
+struct measurement
+measure_lockout_quiet(int argc __unused, CHAR16 *argv[] __unused)
+{
+	struct measurement m = { .name = "LockoutQuiet", .type = MEAS_BYTE };
+	uint32_t failed, max, interval;
+
+	if (!tpm_read_lockout(&failed, &max, &interval))
+		return (m);
+	m.present = true;
+	m.value.byte = failed == 0 ? 1 : 0;
+	return (m);
+}
+
+void
+diagnose_lockout(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
+{
+	uint32_t failed, max, interval;
+
+	d->leaf = "tpm.lockout";
+	if (tpm_read_lockout(&failed, &max, &interval))
+		snprintf(d->text, sizeof(d->text), "failed=%u,max=%u,interval.s=%u",
+		    (unsigned int)failed, (unsigned int)max, (unsigned int)interval);
+	else
+		snprintf(d->text, sizeof(d->text), "unread");
+}
+
 struct measurement
 measure_pcr(int argc __unused, CHAR16 *argv[] __unused)
 {
@@ -723,7 +757,7 @@ diagnose_record(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 	    "geli=%s,counter=%llu,last=%s,bootms=%llu,flags=%u,chain=%s,medium=%c", fp,
 	    (unsigned long long)rs->prev.counter, iso,
 	    (unsigned long long)rs->prev.boot_ms,
-	    (unsigned int)(rs->prev.flags & ~RECORD_F_DURESS),	/* the duress bit stays in the word (flags=7 in kenv) */
+	    (unsigned int)(rs->prev.flags & ~RECORD_F_DURESS),	/* a duress boot writes no record: the bit never stands here, masked for the word's sake */
 	    rs->medium_answered ? (rs->chain_on_medium ? "match" : "differs") :
 	    "unread", rs->prev.medium != 0 ? rs->prev.medium : '-');
 }

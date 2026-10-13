@@ -162,13 +162,22 @@ attest_act() {
 	elv_finding "$1" | $GPG --batch --yes --clearsign 2>/dev/null > "$ELV_STATE/attest/$($DATE -u +%Y%m%dT%H%M%SZ)-$1.asc"
 }
 
-# reauth_act -- demand the owner's token before the boot proceeds: waits
-# until an OpenPGP card answers (Nitrokey inserted). Assumes pcscd/gpg.
+# reauth_act -- ask for the owner's token before the boot proceeds: waits
+# up to ten minutes until an OpenPGP card answers (Nitrokey inserted). A
+# boot that goes on without the token is marked and spooled -- the next
+# boot's motd and the report say the token never came; the boot is not
+# held hostage to a reader that failed. Assumes pcscd/gpg.
 reauth_act() {
 	local n=0
 	printf 'elvboot: %s -- insert the owner token to continue\n' "$1" > /dev/console
 	while ! $GPG --batch --card-status > /dev/null 2>&1; do
-		n=$((n + 1)); [ "$n" -ge 120 ] && break
+		n=$((n + 1))
+		if [ "$n" -ge 120 ]; then
+			GATE_VERDICT=fail; FAILED="$FAILED reauth-timeout"
+			spool_act "$1"
+			mark_act "$1"
+			break
+		fi
 		$SLEEP 5
 	done
 }
@@ -256,7 +265,7 @@ duress_count_act() {
 	while [ "$i" -le 5 ]; do
 		if err=$(halt_count_once "$nv" "$s" 2>&1); then
 			now=$(duress_count_read "$nv")
-			if [ -n "$now" ] && [ "$((0x$now))" -gt "$((0x$sealed))" ]; then
+			if [ -n "$now" ] && [ "${#now}" -eq 16 ] && [ "$now" \> "$sealed" ]; then
 				duress_count_note "pass attempt=$i count=$now sealed=$sealed"
 			else
 				duress_count_note "unconfirmed attempt=$i count=${now:-unreadable} sealed=$sealed"

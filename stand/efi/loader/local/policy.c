@@ -337,12 +337,14 @@ local_run(enum phase ph, int argc, CHAR16 *argv[])
 	if (ph == PHASE_KERNEL) {
 		geli_open_ensure();
 		if (evidence()->duress) {
+			record_cap();	/* the anchor index closes for the decoy root too */
 			decoy_divert();
 			return;
 		}
 		if (evidence()->rescue)
 			rescue_divert();
 		(void)record_commit(record_flags());
+		record_cap();		/* after the anchor's write, on every path */
 	}
 }
 

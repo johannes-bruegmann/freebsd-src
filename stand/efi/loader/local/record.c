@@ -298,10 +298,11 @@ record_secret_present(void)
 }
 
 /*
- * 8 hex of an HMAC over the GELI part of the material, keyed from the
- * material: equal across boots iff the GELI-derived key is the same. When a
- * record is present but invalid, this tells whether the key or the answer
- * moved. Reveals nothing about either. "-" without material.
+ * 8 hex of an HMAC over the GELI part of the material, keyed with the site
+ * salt alone (the answer stays out of it): equal across boots iff the
+ * GELI-derived key is the same. When a record is present but invalid, this
+ * tells whether the key or the answer moved. Reveals nothing about either
+ * beyond that. "-" without material.
  */
 void
 record_geli_fingerprint(char out[9])
@@ -313,7 +314,8 @@ record_geli_fingerprint(char out[9])
 		out[1] = '\0';
 		return;
 	}
-	record_hmac("geli-fingerprint", ikm, SHA256_DIGEST_LENGTH, mac);
+	hmac_sha256((const uint8_t *)record_salt, strlen(record_salt), ikm,
+	    SHA256_DIGEST_LENGTH, mac);
 	snprintf(out, 9, "%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3]);
 	explicit_bzero(mac, sizeof(mac));
 }
@@ -324,6 +326,19 @@ ikm_wipe(void)
 {
 	explicit_bzero(ikm, sizeof(ikm));
 	ikm_len = 0;
+}
+
+/* Equal iff every byte matches; the time does not depend on where they differ. */
+bool
+ct_equal(const void *a, const void *b, size_t len)
+{
+	const uint8_t *x = a, *y = b;
+	uint8_t diff = 0;
+	size_t i;
+
+	for (i = 0; i < len; i++)
+		diff |= x[i] ^ y[i];
+	return (diff == 0);
 }
 
 /* HKDF(salt = site salt, IKM = GELI digest || answer, info = purpose). */
@@ -526,7 +541,7 @@ record_anchor_state(void)
 		return (&A);
 	A.present = true;
 	record_hmac("anchor", &A.body, offsetof(struct record_anchor, tag), tag);
-	if (memcmp(tag, A.body.tag, sizeof(tag)) != 0)
+	if (!ct_equal(tag, A.body.tag, sizeof(tag)))
 		return (&A);
 	A.valid = true;
 	rs = record_load();
@@ -560,10 +575,10 @@ record_shutdown_state(void)
 }
 
 /*
- * Write this boot's anchor under the cap PCR's boot-state policy, then
- * cap: one extend, and the write permission is gone for this boot.
- * Without the leafs nothing is written and nothing capped (the claim
- * AnchorValid then skips, stage require names the leafs).
+ * Write this boot's anchor under the cap PCR's boot-state policy. The cap
+ * itself (record_cap) is the caller's, at the end of the KERNEL phase on
+ * every path. Without the leafs nothing is written (the claim AnchorValid
+ * then skips, stage require names the leafs).
  */
 static void
 anchor_commit(const struct record_body *b)
@@ -584,8 +599,31 @@ anchor_commit(const struct record_body *b)
 	a.medium = b->medium;
 	record_hmac("anchor", &a, offsetof(struct record_anchor, tag), a.tag);
 	(void)tpm_nv_policy_write(key, index, 1u << pcr, (const uint8_t *)&a, sizeof(a));
-	(void)tpm_pcr_extend(pcr, record_cap_digest);
 	explicit_bzero(&a, sizeof(a));
+}
+
+/*
+ * Cap the cap PCR: one extend, once per boot, and the anchor index's
+ * write permission (its policy: the PCR's BOOT state) is gone until the
+ * next boot -- for root in the production, for the coercer's root in the
+ * decoy root, for the rescue. Runs at the end of every KERNEL phase,
+ * whether or not a record was committed; needs no secret, and a TPM that
+ * does not answer (the rescue on another board) leaves nothing to cap.
+ * The shutdown index's policy is the CAPPED state: elvbootd writes it
+ * there, then extends once more.
+ */
+void
+record_cap(void)
+{
+	static bool capped;
+	uint32_t pcr;
+
+	if (capped)
+		return;
+	capped = true;
+	if (!leaf_u32("loader.trust.tpm.cap.pcr", &pcr) || pcr > 23)
+		return;
+	(void)tpm_pcr_extend(pcr, record_cap_digest);
 }
 
 /* --------------------------------------- a firmware variable's slice */
@@ -624,7 +662,7 @@ record_efivar_slice(const char *spec, uint64_t *out)
 		return (false);
 	if (EFI_ERROR(efi_getenv((EFI_GUID *)&uuid, name, buf, &sz)))
 		return (false);
-	if (off + len > sz)
+	if (off > sz || len > sz - off)
 		return (false);
 	for (i = 0; i < len; i++)
 		v |= (uint64_t)buf[off + i] << (8 * i);
@@ -770,8 +808,8 @@ record_load(void)
 		return (&S);
 	S.valid = true;
 	if (medium_last_link(link, &S.medium_answered))
-		S.chain_on_medium = memcmp(link, S.prev.chain,
-		    SHA256_DIGEST_LENGTH) == 0;
+		S.chain_on_medium = ct_equal(link, S.prev.chain,
+		    SHA256_DIGEST_LENGTH);
 	return (&S);
 }
 

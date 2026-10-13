@@ -42,8 +42,18 @@ evidence_note_appraisal(unsigned int phase, const struct appraisal *a)
 	const struct claim *c;
 	const struct claim_result *r;
 
-	if (E.ngates >= EVIDENCE_GATES_MAX)
+	if (E.ngates >= EVIDENCE_GATES_MAX) {
+		/*
+		 * No room for the entry: the verdict still counts (LedgerFailed
+		 * sees it), the names and the reveal words do not -- an
+		 * overflow is a configuration that outgrew the ledger, and a
+		 * silent one would hide a fallen gate.
+		 */
+		E.overflow = true;
+		if (a->verdict == VERDICT_FAIL)
+			E.failed_gates++;
 		return;
+	}
 	e = &E.gates[E.ngates++];
 	e->phase = phase;
 	e->gate = a->gate->name;

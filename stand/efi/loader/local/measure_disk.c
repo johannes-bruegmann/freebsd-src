@@ -64,9 +64,26 @@ handle_part_guid(EFI_HANDLE h, char *out, size_t outsz)
 	return (false);
 }
 
-/* Find the Block I/O handle of the partition with this GUID. */
+/* Removable, as the firmware's Block I/O describes the handle's medium. */
 static bool
-find_partition(const char *guid, EFI_HANDLE *out)
+handle_removable(EFI_HANDLE h)
+{
+	EFI_BLOCK_IO *bio;
+
+	if (EFI_ERROR(BS->HandleProtocol(h, &blkio_guid, (void **)&bio)))
+		return (true);
+	return (bio->Media->RemovableMedia);
+}
+
+/*
+ * Find the Block I/O handle of the partition with this GUID; with fixed,
+ * only on a fixed disk -- the internal disks' GUIDs are in the binary on
+ * the card, and a removable medium carrying one of them (enumerated first
+ * by the firmware) must not stand in for the disk. The witnesses are
+ * cards and ask without fixed: their medium identity tells them apart.
+ */
+static bool
+find_partition(const char *guid, EFI_HANDLE *out, bool fixed)
 {
 	EFI_HANDLE *handles = NULL;
 	UINTN n = 0, i;
@@ -78,7 +95,8 @@ find_partition(const char *guid, EFI_HANDLE *out)
 		return (false);
 	for (i = 0; i < n && !found; i++)
 		if (handle_part_guid(handles[i], g, sizeof(g)) &&
-		    strcmp(g, guid) == 0) {
+		    strcmp(g, guid) == 0 &&
+		    !(fixed && handle_removable(handles[i]))) {
 			*out = handles[i];
 			found = true;
 		}
@@ -99,8 +117,6 @@ find_parent(EFI_HANDLE part, EFI_HANDLE *out)
 	copy = efi_devpath_trim(dp);
 	if (copy == NULL)
 		return (false);
-	for (node = copy; !IsDevicePathEndType(node); node = NextDevicePathNode(node))
-		;
 	h = efi_devpath_handle(copy);
 	free(copy);
 	if (h == NULL)
@@ -170,7 +186,7 @@ measure_geli(int argc __unused, CHAR16 *argv[] __unused)
 
 	SHA256_Init(&ctx);
 	while (next_guid(&cursor, guid, sizeof(guid))) {
-		if (!find_partition(guid, &h) || !block_geometry(h, &bsize, &last))
+		if (!find_partition(guid, &h, true) || !block_geometry(h, &bsize, &last))
 			return (m);
 		buf = malloc(bsize);
 		if (buf == NULL)
@@ -229,9 +245,9 @@ gpt_update(SHA256_CTX *ctx, EFI_HANDLE disk)
 	entries = le32(buf + 80);
 	entsz = le32(buf + 84);
 	free(buf);
-	if (entsz < 128 || entries == 0 || entries > 1024)
+	if (entsz < 128 || entsz > 4096 || entries == 0 || entries > 1024)
 		return (false);
-	bytes = (uint64_t)entries * entsz;
+	bytes = (uint64_t)entries * entsz;		/* at most 4 MiB */
 	buf = malloc(bsize);
 	if (buf == NULL)
 		return (false);
@@ -262,7 +278,7 @@ measure_gpt(int argc __unused, CHAR16 *argv[] __unused)
 
 	SHA256_Init(&ctx);
 	while (next_guid(&cursor, guid, sizeof(guid))) {
-		if (!find_partition(guid, &h) || !find_parent(h, &disk))
+		if (!find_partition(guid, &h, true) || !find_parent(h, &disk))
 			return (m);
 		dup = false;
 		for (i = 0; i < n; i++)
@@ -509,7 +525,7 @@ witness_state(const struct witness *w)
 	EFI_HANDLE h;
 	uint8_t digest[SHA256_DIGEST_LENGTH];
 
-	if (!find_partition(w->guid, &h))
+	if (!find_partition(w->guid, &h, false))
 		return (WITNESS_ABSENT);
 	if (!witness_medium(h, digest))
 		return (WITNESS_DIFFER);	/* present, but not readable as the receipt describes */
@@ -588,7 +604,7 @@ witness_table_match(const struct witness *w)
 	SHA256_CTX ctx;
 	uint8_t digest[SHA256_DIGEST_LENGTH];
 
-	if (!find_partition(w->guid, &h) || !find_parent(h, &disk))
+	if (!find_partition(w->guid, &h, false) || !find_parent(h, &disk))
 		return (-1);
 	SHA256_Init(&ctx);
 	if (!gpt_update(&ctx, disk))

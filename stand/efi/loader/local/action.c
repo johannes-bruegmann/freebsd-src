@@ -36,6 +36,8 @@
 #include "claim.h"
 #include "gate.h"
 #include "action.h"
+#include "tpm_keyfile.h"		/* tpm_keyfile_wipe */
+#include "geli_keys.h"		/* geli_keys_wipe */
 #include "policy.h"
 #include "evidence.h"
 #include "clock.h"
@@ -52,6 +54,17 @@ void
 halt_boot(const char *why)
 {
 	printf("*** boot %s ***\n", why);
+	/*
+	 * Nothing proceeds from here, so nothing may stay readable: the key
+	 * files the TPM released and the GELI keys the dialog derived are
+	 * wiped, and the machine powers off -- a halted machine under power
+	 * keeps its RAM for whoever opens it. Ten seconds for the line above.
+	 */
+	tpm_keyfile_wipe();
+	geli_keys_wipe();
+	printf("powering off in ten seconds\n");
+	delay(10 * 1000000);
+	RS->ResetSystem(EfiResetShutdown, EFI_SUCCESS, 0, NULL);
 	for (;;)
 		(void)getchar();
 }
@@ -515,10 +528,13 @@ unlock_owner(const struct appraisal *a)
 		printf("\n");
 		sha256_hex(got, strlen(got), hash);
 		explicit_bzero(got, sizeof(got));
-		if (strcmp(hash, LOADER_TRUST_UNLOCK_SECRET) == 0) {
+		if (strlen(hash) == strlen(LOADER_TRUST_UNLOCK_SECRET) &&
+		    ct_equal(hash, LOADER_TRUST_UNLOCK_SECRET, strlen(hash))) {
+			explicit_bzero(hash, sizeof(hash));
 			evidence_set_unlocked();	/* the word tells earlboot */
 			return (true);
 		}
+		explicit_bzero(hash, sizeof(hash));
 		printf("wrong.\n");
 	}
 	halt_boot("locked");

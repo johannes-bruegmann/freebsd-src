@@ -161,7 +161,7 @@ struct measurement	measure_origin_verified(int argc, CHAR16 *argv[]);
  *                    cannot contain its own hash): publish-only; earlboot
  *                    compares it with the digest elebake deployed.
  * measure_images     sha256 over every EFI_LOADED_IMAGE the firmware holds
- *                    (base, size, image bytes, in handle order): an injected
+ *                    (base, size, image bytes, in the order of the learned set): an injected
  *                    DXE/runtime driver -- the bootkit class -- changes it.
  *                    Baseline: learned from a trusted boot (stage baseline
  *                    learn), the firmware update changes it legitimately.
@@ -217,6 +217,8 @@ struct measurement	measure_gpt(int argc, CHAR16 *argv[]);
  *                    absent when the list is empty
  */
 struct measurement	measure_witness_labels(int argc, CHAR16 *argv[]);
+struct measurement	measure_lockout_quiet(int argc, CHAR16 *argv[]);	/* LockoutQuiet: 1 iff the TPM counted no failed authorization (its DA counter at 0); absent without a TPM */
+void			diagnose_lockout(int argc, CHAR16 *argv[], struct diagnosis *d);	/* tpm.lockout: failed=<n>,max=<n>,interval.s=<n> */
 struct measurement	measure_witness_tables(int argc, CHAR16 *argv[]);	/* WitnessTables: 1 iff the partition table of the disk of every present witness with a .gpt leaf hashes to it; absent when none is judged */
 void			diagnose_witness_tables(int argc, CHAR16 *argv[], struct diagnosis *d);	/* witness.tables: name=match|differ|unreadable|none|absent */
 struct measurement	measure_witness_slot(int argc, CHAR16 *argv[]);	/* WitnessSlot: 1 iff at least one of loader.trust.inventory.witness.slot (names sharing a slot) is present; absent without the leaf */

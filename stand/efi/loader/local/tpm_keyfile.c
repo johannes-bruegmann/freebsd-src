@@ -23,6 +23,8 @@
 
 #include "tpm.h"
 #include "tpm_keyfile.h"
+
+void	delay(int usecs);		/* libefi/delay.c, undeclared upstream */
 #include "evidence.h"
 
 #define	TPM_KEYFILE_MAX		128	/* a sealed blob is at most 128 bytes */
@@ -184,6 +186,28 @@ place(const char *p, uint8_t *secret, size_t len)
 	}
 }
 
+/*
+ * Wipe every key file this boot placed (the preloaded files named
+ * tpm.keyfile, in the staging area the kernel would have read): zeros
+ * copied over them in place. For a boot that halts.
+ */
+void
+tpm_keyfile_wipe(void)
+{
+	struct preloaded_file *fp;
+	static uint8_t zero[256];
+	size_t off, n;
+
+	for (fp = preloaded_files; fp != NULL; fp = fp->f_next) {
+		if (strcmp(fp->f_name, "tpm.keyfile") != 0)
+			continue;
+		for (off = 0; off < fp->f_size; off += n) {
+			n = fp->f_size - off < sizeof(zero) ? fp->f_size - off : sizeof(zero);
+			archsw.arch_copyin(zero, fp->f_addr + off, n);
+		}
+	}
+}
+
 void
 tpm_keyfile_prepare(const char *passphrase)
 {
@@ -206,6 +230,8 @@ tpm_keyfile_prepare(const char *passphrase)
 	size_t len, n;
 	SHA256_CTX ctx;
 	bool ok, duress_opened = false;
+	uint64_t now = 0;
+	int tries;
 
 	if (st.unsealed)
 		return;				/* placed on an earlier line */
@@ -217,9 +243,10 @@ tpm_keyfile_prepare(const char *passphrase)
 	}
 	st.configured = true;
 	if (kh == NULL || h == NULL || p == NULL || pc == NULL ||
-	    pin == NULL || cnt == NULL || sealed == NULL) {
+	    pin == NULL || cnt == NULL || sealed == NULL || dp == NULL) {
 		st.reason = "incomplete: key.handle, keyfile.handles, providers, "
-		    "pcrs, duress.nv, duress.count.nv, duress.count.sealed";
+		    "pcrs, duress.nv, duress.count.nv, duress.count.sealed, "
+		    "decoy.providers";
 		return;
 	}
 	if (!parse_handle(kh, &keyhandle)) {
@@ -262,7 +289,7 @@ tpm_keyfile_prepare(const char *passphrase)
 		return;
 	}
 	read_indices(cntindex);
-	if (tpm_key_digest(keyhandle, kd))
+	if (tpm_key_digest(keyhandle, kd) && !evidence()->silence)
 		hex_publish("loader.trust.tpm.key.sha256", kd, sizeof(kd));
 	if (key_digest_baseline(kd)) {
 		kdp = kd;
@@ -308,8 +335,10 @@ tpm_keyfile_prepare(const char *passphrase)
 		}
 	}
 	explicit_bzero(auth, sizeof(auth));
-	if (!ok)
+	if (!ok) {
+		explicit_bzero(secret, sizeof(secret));
 		return;
+	}
 	st.unsealed = true;
 	if (duress_opened) {
 		evidence_set_duress();
@@ -319,12 +348,23 @@ tpm_keyfile_prepare(const char *passphrase)
 		 * The second counter too: the owner's object is sealed
 		 * against its value, and a counter never goes back. The PIN
 		 * index alone would leave the seal's death reversible --
-		 * pinCount is an owner-writable cell, and the owner
-		 * hierarchy's password is empty (a root anywhere on this
-		 * machine writes it back to 0).
+		 * pinCount is an owner-writable cell. This increment is the
+		 * death of slot 0, so it is not trusted to a return value:
+		 * written, read back, repeated while the count has not moved
+		 * past the sealed value (the PTT's three transient slots and
+		 * NV_RATE make a single attempt fail now and then). Stays it
+		 * below after the attempts, the decoy root still opens -- a
+		 * halt would be a tell -- and the diagnosis of the next
+		 * owner boot (duress.count) shows the seal alive.
 		 */
-		(void)tpm_nv_policy_increment(keyhandle, cntindex);
-		place(dp != NULL ? dp : "", secret, len);
+		for (tries = 0; tries < 5; tries++) {
+			(void)tpm_nv_policy_increment(keyhandle, cntindex);
+			if (tpm_nv_index_read(cntindex, &now) && now > st.count_sealed)
+				break;
+			delay(200000);
+		}
+		read_indices(cntindex);
+		place(dp, secret, len);
 	} else
 		place(p, secret, len);
 	explicit_bzero(secret, sizeof(secret));

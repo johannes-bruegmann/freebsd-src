@@ -48,7 +48,7 @@ The catalogs (parsed by elebake from the headers here):
 
 Internal (not catalogs): evidence.h (ledger), clock.h (RTC + TSC
 stamps, calibrated at efi_main entry), record.h (encrypt-then-MAC
-NVRAM record, chain file on the medium), tpm.h (TCG2 read-only client),
+NVRAM record, chain file on the medium), tpm.h (TCG2 client: sessions, unseal, NV, PCR extend),
 nvme.h (SMART log page via pass-through).
 
 Every provider and action states in its header comment what it

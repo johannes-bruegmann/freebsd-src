@@ -44,6 +44,7 @@ struct evidence {
 	struct evidence_entry	 gates[EVIDENCE_GATES_MAX];
 	unsigned int		 ngates;
 	unsigned int		 failed_gates;	/* verdict FAIL, all phases */
+	bool			 overflow;	/* a gate beyond EVIDENCE_GATES_MAX: counted, not listed */
 	unsigned int		 prompted;	/* interactive actions fired */
 	unsigned int		 attempts;	/* hidden lines read, all prompts */
 	uint64_t		 prompt_ms;	/* summed dwell at prompts */

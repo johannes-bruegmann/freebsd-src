@@ -27,3 +27,4 @@ const char	*geli_keys_reason(void);
 bool		 geli_keys_files_slot(void);
 
 #endif /* _LOCAL_GELI_KEYS_H_ */
+void	geli_keys_wipe(void);			/* the derived user keys, zeroed (a boot that halts) */

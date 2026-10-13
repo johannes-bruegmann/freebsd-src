@@ -92,6 +92,7 @@ void geli_probe_and_attach(struct open_file *f);
  * Manage key data.
  */
 void geli_add_key(geli_ukey key);
+void geli_wipe_keys(void);
 void geli_import_key_buffer(struct keybuf *keybuf);
 void geli_export_key_buffer(struct keybuf *keybuf);
 /*

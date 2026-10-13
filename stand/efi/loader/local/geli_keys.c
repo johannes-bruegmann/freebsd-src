@@ -40,6 +40,11 @@
 
 #include <geom/eli/pkcs5v2.h>
 
+/* The most PBKDF2 iterations a provider may ask of this loader: the owner's
+ * disks sit in the millions, a planted provider with 2^31 would hold the
+ * boot for hours (its metadata is not authenticated before this point). */
+#define	GELI_ITERATIONS_MAX	(1 << 24)
+
 #include "geliboot.h"
 #include "geli_keys.h"
 
@@ -258,6 +263,11 @@ keys_derive(const struct g_eli_metadata *md, const char *passphrase,
 			ok = files = true;
 		}
 	}
+	if (md->md_iterations > GELI_ITERATIONS_MAX && !ok) {
+		printf("platform trust: %s asks %d PBKDF2 iterations, more than this loader derives -- skipped\n",
+		    name, md->md_iterations);
+		return (false);
+	}
 	if (md->md_iterations > 0 && !ok) {
 		printf("platform trust: deriving the key of %s (%d iterations)...\n",
 		    name, md->md_iterations);
@@ -330,8 +340,8 @@ keys_partition(void *arg, const char *partname __unused,
 }
 
 /*
- * Derive and save the user key of the first GELI partition the cached
- * passphrase and the preloaded key files open. 1 iff a key is saved now.
+ * Derive and save the user key of the first GELI partition the passphrase
+ * of this dialog and the preloaded key files open. 1 iff a key is saved now.
  * One attempt per boot once a passphrase is there: every record claim
  * asks, the disks and the PBKDF2 cost are paid once.
  */
@@ -381,4 +391,11 @@ geli_keys_prepare(const char *passphrase, bool keyfiles_only)
 	    "no GELI partition seen",
 	    keys_seen[0] != '\0' ? keys_seen : "no disk opened");
 	return (c.opened);
+}
+
+/* The user keys the dialog derived, gone: a boot that halts keeps none. */
+void
+geli_keys_wipe(void)
+{
+	geli_wipe_keys();
 }

@@ -32,6 +32,7 @@
 #include <bearssl.h>				/* RSA-OAEP: the salt to the storage key */
 
 #include "tpm.h"
+#include "record.h"		/* ct_equal */
 
 /* --- EFI_TCG2_PROTOCOL, the two members used --- */
 
@@ -91,6 +92,7 @@ struct _EFI_TCG2_PROTOCOL {
 #define	TPM_CC_NV_ReadPublic	0x00000169u
 #define	TPM_CC_PCR_Read		0x0000017eu
 #define	TPM_CC_ReadClock	0x00000181u
+#define	TPM_CC_GetCapability	0x0000017Au
 #define	TPMA_NV_COUNTER		0x00000010u
 #define	TPMA_NV_OWNERWRITE	0x00000002u
 #define	TPMA_NV_AUTHWRITE	0x00000004u
@@ -256,6 +258,46 @@ tpm_present(void)
 	return (tpm_read_clock(&c));
 }
 
+/*
+ * The dictionary-attack state of the TPM: failed authorizations counted
+ * so far, the limit, and the recovery interval in seconds
+ * (TPM_PT_LOCKOUT_COUNTER, TPM_PT_MAX_AUTH_FAIL, TPM_PT_LOCKOUT_INTERVAL,
+ * one GetCapability over the three). The owner's objects carry noDA, so a
+ * wrong passphrase at the dialog does not count here; what counts is a
+ * hand at objects that do.
+ */
+bool
+tpm_read_lockout(uint32_t *failed, uint32_t *max, uint32_t *interval)
+{
+	uint8_t c[32], r[128];
+	struct bb b = { c, 10, sizeof(c) };
+	size_t n, off;
+	uint32_t count, i, prop, val;
+
+	put32(&b, 0x00000006u);			/* TPM_CAP_TPM_PROPERTIES */
+	put32(&b, 0x0000020Eu);			/* TPM_PT_LOCKOUT_COUNTER */
+	put32(&b, 3);
+	finish(&b, TPM_ST_NO_SESSIONS, TPM_CC_GetCapability);
+	if (!submit(&b, r, sizeof(r), &n) || n < 10 + 1 + 4 + 4)
+		return (false);
+	/* moreData(1) capability(4) TPML_TAGGED_TPM_PROPERTY: count(4) {property(4) value(4)}... */
+	count = get32(r + 10 + 5);
+	if (count < 3 || n < 10 + 9 + count * 8)
+		return (false);
+	*failed = *max = *interval = 0;
+	for (i = 0, off = 10 + 9; i < count; i++, off += 8) {
+		prop = get32(r + off);
+		val = get32(r + off + 4);
+		if (prop == 0x0000020Eu)
+			*failed = val;
+		else if (prop == 0x0000020Fu)
+			*max = val;
+		else if (prop == 0x00000210u)
+			*interval = val;
+	}
+	return (true);
+}
+
 bool
 tpm_read_clock(struct tpm_clock *out)
 {
@@ -301,6 +343,8 @@ tpm_pcr_bank(uint32_t mask, uint8_t out[static SHA256_DIGEST_LENGTH])
 	if (off + 4 > n)
 		return (false);
 	count = get32(r + off);
+	if (count > 24)				/* TPML_PCR_SELECTION: a bank per hash algorithm, a handful */
+		return (false);
 	off += 4 + count * 6;
 	if (off + 4 > n)
 		return (false);
@@ -350,9 +394,11 @@ tpm_nv_counter_increment(void)
 
 /* Define the counter index (once): owner- and auth-writable, owner- and
  * auth-readable, no DA. The one command here that needs the owner
- * hierarchy: it runs before the hierarchy's password is set (elebake
- * stage tpm hierarchy); everything the boot path does afterwards
- * authorizes through the index itself. */
+ * hierarchy, with the empty password of a TPM not yet provisioned: it is
+ * the first provisioning's way (elebake stage tpm counter defines it
+ * otherwise); whether the boot path may call it at all is the leaf
+ * loader.trust.tpm.counter.define (record.c). Everything else the boot
+ * path does authorizes through the index itself. */
 bool
 tpm_nv_define_counter(void)
 {
@@ -502,6 +548,9 @@ cfb_decrypt(const uint8_t key[16], const uint8_t iv[16], uint8_t *buf, size_t le
 
 		if (rijndael_blockEncrypt(&c, &k, prev, 128, ks) != 128) {
 			last_error = "AES failed";
+			explicit_bzero(&k, sizeof(k));
+			explicit_bzero(ks, sizeof(ks));
+			explicit_bzero(prev, sizeof(prev));
 			return (false);
 		}
 		memcpy(prev, buf + i, n);		/* the cipher block feeds the next */
@@ -525,11 +574,15 @@ rdrand_init(const br_prng_class **ctx __unused, const void *params __unused,
 {
 }
 
+static bool rdrand_failed;
+
 static void
 rdrand_generate(const br_prng_class **ctx __unused, void *out, size_t len)
 {
-	if (!entropy(out, len))
-		memset(out, 0, len);		/* refused later: entropy() set last_error */
+	if (!entropy(out, len)) {
+		memset(out, 0, len);
+		rdrand_failed = true;		/* the padding is no padding: refused after the encrypt */
+	}
 }
 
 static void
@@ -660,6 +713,8 @@ struct session {
  * bus can derive, and every command carries an HMAC only the two ends can
  * compute.
  */
+static void	flush_context(uint32_t handle);
+
 static bool
 session_start(const struct tpm_key *k, uint32_t keyhandle, uint8_t type,
     struct session *s)
@@ -683,11 +738,14 @@ session_start(const struct tpm_key *k, uint32_t keyhandle, uint8_t type,
 		ebuf[0] = k->e >> 24; ebuf[1] = k->e >> 16; ebuf[2] = k->e >> 8; ebuf[3] = k->e;
 		pk.e = ebuf; pk.elen = 4;
 	}
+	rdrand_failed = false;
 	enclen = br_rsa_i31_oaep_encrypt(rnd, &br_sha256_vtable, label, sizeof(label),
 	    &pk, enc, sizeof(enc), salt, sizeof(salt));
-	if (enclen == 0 || enclen != k->nlen) {
-		last_error = "salt encryption failed";
+	if (enclen == 0 || enclen != k->nlen || rdrand_failed) {
+		last_error = rdrand_failed ? "no entropy for the salt's padding" :
+		    "salt encryption failed";
 		explicit_bzero(salt, sizeof(salt));
+		explicit_bzero(enc, sizeof(enc));
 		return (false);
 	}
 	put32(&b, keyhandle);			/* tpmKey: the salt goes to it */
@@ -712,6 +770,7 @@ session_start(const struct tpm_key *k, uint32_t keyhandle, uint8_t type,
 	nsz = get16(r + 14);
 	if (nsz == 0 || nsz > sizeof(s->nonce_tpm) || 16 + nsz > n) {
 		last_error = "bad session nonce";
+		flush_context(s->handle);	/* the session was started: free its slot */
 		explicit_bzero(salt, sizeof(salt));
 		return (false);
 	}
@@ -932,7 +991,7 @@ check_response(struct session *s, uint32_t cc, const uint8_t *r, size_t n,
 	    s->nonce_tpm, s->nonce_tpm_len, s->nonce_caller, sizeof(s->nonce_caller),
 	    &attrs, 1, mac);
 	explicit_bzero(key, sizeof(key));
-	if (memcmp(mac, r + off, sizeof(mac)) != 0) {
+	if (!ct_equal(mac, r + off, sizeof(mac))) {
 		last_error = "response HMAC wrong (not the TPM the session was started with)";
 		return (false);
 	}
@@ -1025,6 +1084,7 @@ unseal(struct session *s, uint32_t handle, const uint8_t *name, size_t namelen,
 bad:
 	last_error = "bad unseal response";
 out:
+	explicit_bzero(out, cap);		/* the response bytes, whatever reached them */
 	explicit_bzero(kiv, sizeof(kiv));
 	explicit_bzero(r, sizeof(r));
 	return (false);
@@ -1056,8 +1116,11 @@ tpm_unseal(uint32_t keyhandle, const uint8_t *key_digest, uint32_t handle,
 		return (false);
 	if (!session_start(&k, keyhandle, TPM_SE_POLICY, &s))
 		return (false);
-	if (authlen > sizeof(s.auth))
-		authlen = sizeof(s.auth);
+	if (authlen > sizeof(s.auth)) {
+		last_error = "auth value too long";
+		session_end(&s);
+		return (false);
+	}
 	if (authlen > 0)
 		memcpy(s.auth, auth, authlen);
 	s.authlen = authlen;

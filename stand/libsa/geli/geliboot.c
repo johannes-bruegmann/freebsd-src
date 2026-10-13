@@ -80,6 +80,14 @@ geli_import_key_buffer(struct keybuf *skeybuf)
 	skeybuf->kb_nents = 0;
 }
 
+/* Every saved key zeroed and forgotten: for a boot that will not go on. */
+void
+geli_wipe_keys(void)
+{
+	explicit_bzero(saved_keys, sizeof(saved_keys));
+	nsaved_keys = 0;
+}
+
 void
 geli_add_key(geli_ukey key)
 {

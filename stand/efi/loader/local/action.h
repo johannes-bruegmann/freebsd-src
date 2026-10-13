@@ -99,7 +99,6 @@ struct appraisal;
 void	readsecret(char *buf, size_t sz);
 void	readsecret_confirm(char *buf, size_t sz);
 void	halt_boot(const char *why);		/* prints, then waits forever */
-void	halt_boot(const char *why);		/* prints, then waits forever */
 
 struct action {
 	const char	*name;

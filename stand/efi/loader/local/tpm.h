@@ -24,8 +24,10 @@
  * Assumes: a TPM 2.0 is enabled in Setup and the firmware publishes the
  * TCG2 protocol. Absent TPM -> every call reports failure and the
  * corresponding claim is not present. The NV counter index is defined
- * once (tpm_nv_define_counter, owner auth empty) -- a firmware "clear
- * TPM" destroys it, which the next boot reports as a missing anchor.
+ * by elebake (stage tpm counter); the boot path defines it only when the
+ * leaf loader.trust.tpm.counter.define says so (a first provisioning, the
+ * owner hierarchy still without a password) -- a firmware "clear TPM"
+ * destroys it, which the next boot reports as a missing anchor.
  *
  * Not a catalog: internal to the local layer.
  */
@@ -51,6 +53,7 @@ struct tpm_clock {
 
 bool	tpm_present(void);
 bool	tpm_read_clock(struct tpm_clock *);
+bool	tpm_read_lockout(uint32_t *failed, uint32_t *max, uint32_t *interval);	/* the DA state: failed tries, the limit, the recovery interval */
 bool	tpm_parse_pcrs(const char *list, uint32_t *mask);		/* "0,2,7" -> bits */
 bool	tpm_pcr_bank(uint32_t mask, uint8_t out[static SHA256_DIGEST_LENGTH]);	/* sha256 over the selected PCRs */
 bool	tpm_nv_counter_read(uint64_t *);
@@ -67,7 +70,8 @@ bool	tpm_key_digest(uint32_t keyhandle, uint8_t out[static SHA256_DIGEST_LENGTH]
  * PolicySecret against an NV index whose authValue is auth -- proven by a
  * second salted HMAC session, the value never crosses the bus; a PIN_PASS
  * index counts it. NV: PolicyNV, operand <eo> the index's oplen bytes at
- * offset, the owner reading (empty auth). The NV operand is part of the
+ * offset, read through the index's own auth (authread, empty). The NV
+ * operand is part of the
  * policy digest: it must be the value the object was sealed against.
  */
 enum tpm_policy_op {

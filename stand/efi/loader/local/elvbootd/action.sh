@@ -94,7 +94,10 @@ summary_act() {
 # sha256 of the newest earlier snapshot, so a rewritten past breaks the
 # chain -- and every later run of the same boot (SHUTDOWN) appends the
 # session's appraisals and the spool lines since the boot under
-# '# elvbootd at=<time>'. The stamp leads the name: the counter starts
+# '# elvbootd at=<time>' -- without the sentinel's answer hashes (.answer,
+# .answer.first: salted with a salt that is on the card, eight bits of
+# preimage for the first; the owner's class of answer is nobody's to read
+# from a file). The stamp leads the name: the counter starts
 # at 1 again when the record chain starts anew, the stamp keeps the order.
 # The 200 newest stay. Assumes the loader published the counter (book_act's
 # leaf); without it the stamp alone names the file and no later run finds it.
@@ -122,7 +125,7 @@ kenv_act() {
 	prev=$($FIND "$d" -type f -name '[0-9]*T[0-9]*Z-*.kenv' | $SORT | $TAIL -n 1)
 	{
 		printf '# counter=%s at=%s prev=%s\n' "${c:-none}" "$iso" "${prev:+$($SHA256 -q "$prev")}"
-		$KENV | $GREP '^loader\.trust\.'
+		$KENV | $GREP '^loader\.trust\.' | $GREP -v '\.answer\(\.first\)\{0,1\}='
 	} > "$d/$($DATE -u +%Y%m%dT%H%M%SZ)-${c:-0}.kenv"
 	n=$($FIND "$d" -type f -name '[0-9]*T[0-9]*Z-*.kenv' | $WC -l | $TR -d ' ')
 	[ "$n" -gt 200 ] || return 0
@@ -189,7 +192,7 @@ smart_anchor_act() {
 		n = a; for (i = 0; i < 8; i++) { printf "\\%03o", n % 256; n = int(n / 256) }
 		n = b; for (i = 0; i < 8; i++) { printf "\\%03o", n % 256; n = int(n / 256) }
 		n = c; for (i = 0; i < 8; i++) { printf "\\%03o", n % 256; n = int(n / 256) }
-		if (m == "") printf "\\000"; else printf "%s", m
+		if (m == "") printf "\\000"; else for (i = 1; i <= 26; i++) if (substr("abcdefghijklmnopqrstuvwxyz", i, 1) == m) printf "\\%03o", 96 + i
 		for (i = 0; i < 7; i++) printf "\\000" }')
 	# shellcheck disable=SC2059
 	printf "$body" > "$f"

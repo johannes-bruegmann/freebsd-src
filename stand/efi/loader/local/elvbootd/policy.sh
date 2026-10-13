@@ -60,15 +60,17 @@ elv_prologue() {
 }
 
 # elv_flags_load -- the flags of this boot as earlboot persisted them
-# (persist_act); absent appraisal = flags unknown = 0
+# (persist_act writes appraisal-<earlboot gate>, whichever gate carries
+# the word claim; the line 'word=... taint=... duress=... prompted=...'
+# names the file): absent appraisal = flags unknown = 0
 elv_flags_load() {
-	local f
+	local f line
 	ELV_WORD_OK=0; ELV_TAINT=0; ELV_DURESS=0; ELV_PROMPTED=0
-	f="$ELV_STATE/appraisal-$ELV_GATE_LOADER"
-	[ -f "$f" ] || return 0
-	ELV_WORD_OK=$($SED -n 's/^word=\([01]\) .*/\1/p' "$f")
-	ELV_TAINT=$($SED -n 's/.* taint=\([01]\) .*/\1/p' "$f")
-	ELV_DURESS=$($SED -n 's/.* duress=\([01]\) .*/\1/p' "$f")
-	ELV_PROMPTED=$($SED -n 's/.* prompted=\([01]\)$/\1/p' "$f")
+	line=$($GREP -h '^word=[01] taint=[01] duress=[01] prompted=[01]$' "$ELV_STATE"/appraisal-* 2>/dev/null | $HEAD -n 1)
+	[ -n "$line" ] || return 0
+	ELV_WORD_OK=$(printf '%s\n' "$line" | $SED -n 's/^word=\([01]\) .*/\1/p')
+	ELV_TAINT=$(printf '%s\n' "$line" | $SED -n 's/.* taint=\([01]\) .*/\1/p')
+	ELV_DURESS=$(printf '%s\n' "$line" | $SED -n 's/.* duress=\([01]\) .*/\1/p')
+	ELV_PROMPTED=$(printf '%s\n' "$line" | $SED -n 's/.* prompted=\([01]\)$/\1/p')
 	return 0
 }

@@ -237,18 +237,20 @@ measure_heartbeat() {
 	if [ $((now - stamp)) -le "$1" ]; then printf '1\n'; else printf '0\n'; fi
 }
 
-# measure_pcr_agree -- 1 iff the sha256 over PCR 0..7 of the SHA256 bank,
+# measure_pcr_agree -- 1 iff the sha256 over the PCRs of loader.trust.pcr.require
+# (the loader's selection; 0..7 without the leaf) of the SHA256 bank,
 # read from the TPM here, equals what the loader published as its PcrBank
 # (loader.trust.<gate>.pcr.sha256, whichever gate the stage bound it to): the TPM itself against the loader's
 # word, a witness the loader cannot forge. 0 on disagreement; absent when
 # the loader published nothing or the TPM cannot be read. Assumes
 # tpm2-tools (tpm2_pcrread) and /dev/tpm0 -- the tpm driver loaded.
 measure_pcr_agree() {
-	local said mine t
+	local said mine t sel
 	said=$($KENV | $SED -n 's/^loader\.trust\.[a-z0-9_]*\.pcr\.sha256="\(.*\)"$/\1/p' | $HEAD -n1)
 	[ -n "$said" ] || return 0
+	sel=$($KENV -q loader.trust.pcr.require 2>/dev/null); sel=${sel:-0,1,2,3,4,5,6,7}
 	t=$($MKTEMP) || return 0
-	if $TPM2_PCRREAD -Q -o "$t" sha256:0,1,2,3,4,5,6,7 2>/dev/null; then
+	if $TPM2_PCRREAD -Q -o "$t" "sha256:$sel" 2>/dev/null; then
 		mine=$($SHA256 -q "$t" 2>/dev/null)
 	fi
 	$RM -f "$t"

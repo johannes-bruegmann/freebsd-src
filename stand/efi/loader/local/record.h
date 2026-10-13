@@ -11,9 +11,11 @@
  * boot's counter, its time, the hardware anchors it saw (TPM reset count and
  * clock, NVMe power cycles and unsafe shutdowns) and the last link of a hash
  * chain. It is encrypt-then-MAC: AES-256-CTR under a key derived (HKDF-
- * SHA256) from the compiled-in record secret, then HMAC-SHA256 over the
- * ciphertext under a second derived key. A record that does not verify is
- * absent -- there is no "partially trusted" record.
+ * SHA256, salted with the site salt) from the material of the boot -- the
+ * GELI-derived key and the boot answer, never anything compiled in (see
+ * below) -- then HMAC-SHA256 over the ciphertext under a second derived
+ * key. A record that does not verify is absent -- there is no "partially
+ * trusted" record.
  *
  * The same chain link is appended to a file on the boot medium's ESP
  * (/EFI/elvboot/chain, one sealed link per boot). NVRAM lives in the laptop,
@@ -137,6 +139,7 @@ uint8_t				 record_medium_letter(void);
 bool				 record_efivar_slice(const char *spec, uint64_t *out);
 /* how often the boot answer had to be typed again (0 or 1) */
 unsigned int			 record_answer_retries(void);
+bool				 ct_equal(const void *a, const void *b, size_t len);	/* constant-time byte comparison */
 /* the digest every cap extends into the cap PCR (shared with elvbootd) */
 extern const uint8_t		 record_cap_digest[SHA256_DIGEST_LENGTH];
 
@@ -148,6 +151,7 @@ void		 record_geli_fingerprint(char out[9]);
 
 /* Seal and write this boot's record; append the link to the medium. */
 bool	record_commit(uint8_t flags);
+void	record_cap(void);			/* the cap PCR extended once, at the end of every KERNEL phase */
 
 /* Derived-key helper of the record itself (keys from the passphrase). */
 void	record_hmac(const char *purpose, const void *msg, size_t len,

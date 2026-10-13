@@ -25,6 +25,7 @@
 #include "tpm_keyfile.h"
 #include "geli_keys.h"
 #include "geli_open.h"
+#include "measurement.h"		/* halt_count_raise */
 
 #define	GELI_OPEN_TRIES_DEFAULT	3
 #define	GELI_OPEN_TRIES_MAX	99
@@ -78,6 +79,12 @@ geli_open_ensure(void)
 		explicit_bzero(pw, sizeof(pw));
 		printf("no provider opened (%s)\n", geli_keys_reason());
 	}
+	/*
+	 * The tries are spent: a halt like the report's x, counted first
+	 * (loader.trust.halt.nv), so the next boot's HaltQuiet names it --
+	 * three wrong lines at this prompt are the foreign hand's trace.
+	 */
+	(void)halt_count_raise();
 	halt_boot("no provider opened");
 }
 
