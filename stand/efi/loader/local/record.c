@@ -488,11 +488,23 @@ chain_file_name(void)
 	return (evidence()->rescue ? "chain-rescue" : "chain");
 }
 
+/*
+ * A variable that exists under other attributes (a loader before the
+ * boot-service-only record wrote it with runtime access) refuses the
+ * write with EFI_INVALID_PARAMETER: it is deleted and written once more,
+ * the one migration a changed attribute set needs.
+ */
 bool
 record_var_set(const char *name, const void *buf, size_t len)
 {
-	return (!EFI_ERROR(efi_setenv(&elv_guid, name, NV_ATTRS,
-	    __DECONST(void *, buf), len)));
+	EFI_STATUS st;
+
+	st = efi_setenv(&elv_guid, name, NV_ATTRS, __DECONST(void *, buf), len);
+	if (st == EFI_INVALID_PARAMETER &&
+	    !EFI_ERROR(efi_delenv(&elv_guid, name)))
+		st = efi_setenv(&elv_guid, name, NV_ATTRS,
+		    __DECONST(void *, buf), len);
+	return (!EFI_ERROR(st));
 }
 
 bool
@@ -907,6 +919,7 @@ record_commit(uint8_t flags)
 	record_hmac("chain", msg, sizeof(msg), b.chain);
 	seal(&b, sealed);
 	ok = record_var_set(record_var_name(), sealed, sizeof(sealed));
+	setenv("loader.trust.recordlock.commit", ok ? "ok" : "failed", 1);
 	(void)record_medium_append(chain_file_name(), b.chain, sizeof(b.chain));
 	anchor_commit(&b);			/* needs the material: before the wipe */
 	ikm_wipe();
