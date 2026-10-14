@@ -148,6 +148,7 @@ extern const uint8_t		 record_cap_digest[SHA256_DIGEST_LENGTH];
 const char	*record_reason(void);
 /* record.c: 8 hex keyed fingerprint of the GELI part of the material, "-" without */
 void		 record_geli_fingerprint(char out[9]);
+void		 record_ikm_fingerprint(char out[9]);
 
 /* Seal and write this boot's record; append the link to the medium. */
 bool	record_commit(uint8_t flags);

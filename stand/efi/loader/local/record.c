@@ -312,20 +312,33 @@ record_secret_present(void)
  * tells whether the key or the answer moved. Reveals nothing about either
  * beyond that. "-" without material.
  */
-void
-record_geli_fingerprint(char out[9])
+static void
+fingerprint(size_t len, char out[9])
 {
 	uint8_t mac[SHA256_DIGEST_LENGTH];
 
-	if (ikm_len < SHA256_DIGEST_LENGTH) {
+	if (ikm_len < len || len == 0) {
 		out[0] = '-';
 		out[1] = '\0';
 		return;
 	}
 	hmac_sha256((const uint8_t *)record_salt, strlen(record_salt), ikm,
-	    SHA256_DIGEST_LENGTH, mac);
+	    len, mac);
 	snprintf(out, 9, "%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3]);
 	explicit_bzero(mac, sizeof(mac));
+}
+
+void
+record_geli_fingerprint(char out[9])
+{
+	fingerprint(SHA256_DIGEST_LENGTH, out);
+}
+
+/* The whole material, answer included: what the MAC keys derive from. */
+void
+record_ikm_fingerprint(char out[9])
+{
+	fingerprint(ikm_len, out);
 }
 
 /* Wipe: the material's last user was record_commit(). */
@@ -919,7 +932,14 @@ record_commit(uint8_t flags)
 	record_hmac("chain", msg, sizeof(msg), b.chain);
 	seal(&b, sealed);
 	ok = record_var_set(record_var_name(), sealed, sizeof(sealed));
-	setenv("loader.trust.recordlock.commit", ok ? "ok" : "failed", 1);
+	{
+		char fp[9], line[64];
+
+		record_ikm_fingerprint(fp);
+		snprintf(line, sizeof(line), "%s,counter=%llu,ikm=%s",
+		    ok ? "ok" : "failed", (unsigned long long)b.counter, fp);
+		setenv("loader.trust.recordlock.commit", line, 1);
+	}
 	(void)record_medium_append(chain_file_name(), b.chain, sizeof(b.chain));
 	anchor_commit(&b);			/* needs the material: before the wipe */
 	ikm_wipe();

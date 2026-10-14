@@ -744,14 +744,15 @@ diagnose_record(int argc __unused, CHAR16 *argv[] __unused, struct diagnosis *d)
 	struct stamp s;
 	char iso[32];
 
-	char fp[9];
+	char fp[9], ifp[9];
 
 	d->leaf = "record";
 	record_geli_fingerprint(fp);
+	record_ikm_fingerprint(ifp);
 	if (!rs->valid) {
 		if (rs->present)
 			snprintf(d->text, sizeof(d->text),
-			    "present,invalid (geli=%s)", fp);
+			    "present,invalid (geli=%s,ikm=%s)", fp, ifp);
 		else
 			snprintf(d->text, sizeof(d->text), "absent (%s)",
 			    record_reason());
