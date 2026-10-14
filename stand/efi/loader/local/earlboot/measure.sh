@@ -58,6 +58,16 @@ elv_failed_has() {
 # identity: board, keys, origin, ACPI, PCI, images, variables, the PCR
 # bank, the soft PCR, the TPM and its key file, foreign variables) fell in
 # any gate; 0 with one fallen; absent when no gate published a failed list
+# elv_record_restarted -- 0 iff the gate that publishes the record says
+# RecordValid fell: a chain that starts anew has no history for the tells
+# that compare against the record (the restart is the finding, not them)
+elv_record_restarted() {
+	local g
+	for g in $($KENV 2>/dev/null | $SED -n 's/^loader\.trust\.\([a-z]*\)\.record=.*/\1/p'); do
+		elv_failed_has "$g" RecordValid && return 0
+	done
+	return 1
+}
 measure_class_identity() {
 	local any=0 g f c
 	for g in $($KENV 2>/dev/null | $SED -n 's/^loader\.trust\.\([a-z]*\)\.failed=.*/\1/p'); do
@@ -97,6 +107,8 @@ diagnose_setup_factory() { $KENV -q "loader.trust.$1.failed" 2>/dev/null; }
 # stays closed until the owner looked; absent without the gap leaf or the window
 measure_storage_long() {
 	local gap max
+	$KENV -q "loader.trust.$1.storage.gap" > /dev/null 2>&1 || return 0
+	if elv_record_restarted; then printf '1\n'; return 0; fi
 	gap=$($KENV -q "loader.trust.$1.storage.gap" 2>/dev/null | $SED -n 's/.*gap\.s=\([0-9]*\).*/\1/p')
 	max=$($KENV -q loader.trust.storage.gap.max.days 2>/dev/null)
 	[ -n "$gap" ] && [ -n "$max" ] || return 0
@@ -144,6 +156,7 @@ diagnose_attempts_nonzero() { printf 'attempts=%s %s\n' "$($KENV -q "loader.trus
 # when the gate published nothing
 measure_moved_repeat() {
 	$KENV -q "loader.trust.$1.failed" > /dev/null 2>&1 || return 0
+	if elv_record_restarted; then printf '1\n'; return 0; fi
 	if elv_failed_has "$1" FirmwareMoved; then printf '0\n'; else printf '1\n'; fi
 }
 diagnose_moved_repeat() { $KENV -q "loader.trust.$1.firmware.moving" 2>/dev/null; }
