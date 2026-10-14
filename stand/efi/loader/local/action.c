@@ -516,9 +516,10 @@ action_confirm(const struct appraisal *a)
  * caller decides what an unprovisioned build does with that.
  */
 /*
- * The unlock passphrase is compared as PBKDF2-HMAC-SHA256 over the first
- * eight bytes of the record salt, UNLOCK_ITERATIONS rounds, 32 bytes, in
- * hex (what elebake stage baseline prompt derives with openssl): a card
+ * The unlock passphrase is compared as PBKDF2-HMAC-SHA512 (pkcs5v2 is
+ * GELI's, SHA512) over the first eight bytes of the record salt,
+ * UNLOCK_ITERATIONS rounds, 32 bytes, in hex (what elebake stage baseline
+ * prompt derives with openssl enc -pbkdf2 -md sha512): a card
  * thief with the binary faces the rounds, not a bare SHA256. Without the
  * salt there is no unlock hash to compare.
  */
