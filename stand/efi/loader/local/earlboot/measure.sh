@@ -73,7 +73,7 @@ measure_class_identity() {
 	for g in $($KENV 2>/dev/null | $SED -n 's/^loader\.trust\.\([a-z]*\)\.failed=.*/\1/p'); do
 		any=1
 		f=$($KENV -q "loader.trust.$g.failed" 2>/dev/null)
-		for c in BoardIdentity SecureBootKeys LoadOrigin AcpiTables PciDevices LoadedImages EfiVariables PcrBank SoftPcr TpmPresent TpmKeyfile EfiVarsForeign; do
+		for c in BoardIdentity SecureBootKeys LoadOrigin AcpiTables PciDevices LoadedImages EfiVariables GeliHeaders PartitionTables PcrBank SoftPcr TpmPresent TpmKeyfile EfiVarsForeign; do
 			case ",$f," in *",$c,"*) printf '0\n'; return 0 ;; esac
 		done
 	done
@@ -84,7 +84,7 @@ diagnose_class_identity() {
 	local g f c out=""
 	for g in $($KENV 2>/dev/null | $SED -n 's/^loader\.trust\.\([a-z]*\)\.failed=.*/\1/p'); do
 		f=$($KENV -q "loader.trust.$g.failed" 2>/dev/null)
-		for c in BoardIdentity SecureBootKeys LoadOrigin AcpiTables PciDevices LoadedImages EfiVariables PcrBank SoftPcr TpmPresent TpmKeyfile EfiVarsForeign; do
+		for c in BoardIdentity SecureBootKeys LoadOrigin AcpiTables PciDevices LoadedImages EfiVariables GeliHeaders PartitionTables PcrBank SoftPcr TpmPresent TpmKeyfile EfiVarsForeign; do
 			case ",$f," in *",$c,"*) out="$out${out:+,}$g:$c" ;; esac
 		done
 	done

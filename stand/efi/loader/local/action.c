@@ -568,6 +568,39 @@ unlock_owner(const struct appraisal *a)
 #endif
 }
 
+/*
+ * LedgerFailed says only that a gate before this one fell; the owner at
+ * the prompt decides about the cause. Every earlier gate's failed list as
+ * published (loader.trust.<gate>.failed, non-empty) follows the headline.
+ */
+static void
+ledger_failed_show(const struct appraisal *a)
+{
+	struct env_var *ev;
+	const char *n;
+	size_t l;
+	char gate[64];
+
+	for (ev = environ; ev != NULL; ev = ev->ev_next) {
+		n = ev->ev_name;
+		if (strncmp(n, "loader.trust.", 13) != 0)
+			continue;
+		l = strlen(n);
+		if (l < 21 || strcmp(n + l - 7, ".failed") != 0)
+			continue;
+		if (ev->ev_value == NULL || ((const char *)ev->ev_value)[0] == '\0')
+			continue;
+		l = l - 13 - 7;
+		if (l >= sizeof(gate))
+			continue;
+		memcpy(gate, n + 13, l);
+		gate[l] = '\0';
+		if (strcmp(gate, a->gate->name) == 0)
+			continue;
+		printf("    %s: %s\n", gate, (const char *)ev->ev_value);
+	}
+}
+
 static void
 action_unlock(const struct appraisal *a)
 {
@@ -575,6 +608,8 @@ action_unlock(const struct appraisal *a)
 
 	list_by_verdict(a, VERDICT_FAIL, failed, sizeof(failed));
 	printf("\n*** %s: verification failed [%s] ***\n", a->gate->name, failed);
+	if (strstr(failed, "LedgerFailed") != NULL)
+		ledger_failed_show(a);
 	if (!unlock_owner(a))
 		printf("no unlock secret compiled in -- continuing.\n");
 }
